@@ -4,7 +4,6 @@
 #include <string>
 #include <cassert>
 #include <vector>
-
 #include <tiffio.h>
 
 enum TiffReaderType {
@@ -44,27 +43,26 @@ class TiffReader {
   
   // return the number of IFDs
   size_t NumDirs() const;
-
+  
   int ReadImage();
+  
+  template <typename U>
+  Raster<U>* GetImageData() const;
   
  private:
 
   std::string m_filename;
 
-  size_t m_tile_width, m_tile_height;
-
-  size_t m_bits_per_sample, m_sample_format, m_samples_per_pixel;
-
-  TIFF *m_tif;
-
   size_t m_num_dirs;
-
-  uint32_t m_width, m_height;
 
   // matrix to store raster data
   // really should be array not vector
-  std::vector<std::vector<uint8_t>> m_data; //(width, std::vector<uint8_t>(height));
   
+  Raster m_data; 
+
+  template <typename U>
+  int __read_tiled_image();
+
 };
 
 #endif

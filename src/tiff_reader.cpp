@@ -6,7 +6,7 @@ TiffReader::~TiffReader() {
 
 
 template <typename U>
-int TiffReader::__read_image() {
+int TiffReader::__read_tiled_image() {
 
   // Read the image data
   U *tile = (U*)_TIFFmalloc(TIFFTileSize(itif));
@@ -40,12 +40,18 @@ int TiffReader::__read_image() {
   _TIFFfree(tile);
 }
 
+template <typename U>
+Raster<U>* TiffReader::GetImageData() const {
+  return &m_data;
+}
+
+
 int TiffReader::ReadImage() {
 
   if (m_data_mode_32)
-    return(__read_image<uint32_t>());
+    return(__read_tiled_image<uint32_t>());
   else
-    return(__read_image<uint8_t>());
+    return(__read_tiled_image<uint8_t>());
 
 }
 

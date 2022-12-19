@@ -40,15 +40,15 @@ int main(int argc, char **argv) {
   int dircount = 0;
     
   // Set the TIFF parameters
-  TIFFSetField(otif.GetTiff(), TIFFTAG_IMAGEWIDTH, width); //TILE_WIDTH); //debug width
-  TIFFSetField(otif.GetTiff(), TIFFTAG_IMAGELENGTH, height); //TILE_HEIGHT); //debug height
+  TIFFSetField(otif.GetTiff(), TIFFTAG_IMAGEWIDTH, width); 
+  TIFFSetField(otif.GetTiff(), TIFFTAG_IMAGELENGTH, height); 
   TIFFSetField(otif.GetTiff(), TIFFTAG_SAMPLESPERPIXEL, 1);
   TIFFSetField(otif.GetTiff(), TIFFTAG_BITSPERSAMPLE, 8);
   TIFFSetField(otif.GetTiff(), TIFFTAG_ORIENTATION, ORIENTATION_TOPLEFT);
   //TIFFSetField(otif.GetTiff(), TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
   TIFFSetField(otif.GetTiff(), TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_MINISBLACK);
-  TIFFSetField(otif.GetTiff(), TIFFTAG_TILEWIDTH, TILE_WIDTH);
-  TIFFSetField(otif.GetTiff(), TIFFTAG_TILELENGTH, TILE_HEIGHT);
+
+  otif.SetTile(TILE_HEIGHT, TILE_WIDTH);
   
   /*
   //debug
@@ -97,54 +97,8 @@ int main(int argc, char **argv) {
   */
   
   dircount++;
-  
-  // Allocate a buffer for the output tiles
-  uint8_t *outtilebuf = (uint8_t*)_TIFFmalloc(TIFFTileSize(otif));
-  if (outtilebuf == NULL) {
-    fprintf(stderr, "Error allocating memory for tiles\n");
-    return 1;
-  }
-  
-  // Write the tiles to the TIFF file
-  int num_height_tiles = (int)std::ceil((double)height / TILE_HEIGHT);
-  int num_width_tiles  = (int)std::ceil((double)width /  TILE_WIDTH);
-  std::cerr << " h " << width << " numh " << num_height_tiles << " w " << width << " numw " << num_width_tiles << std::endl;
-  std::cerr << " writing " << argv[2] << std::endl;
-  for (y = 0; y < num_height_tiles; y++) {
-    for (x = 0; x < num_width_tiles; x++) {
-      //std::cerr << "tile " << x << "," << y << std::endl;
-      // Fill the tile buffer with data
-      //if (x + tx < width && y + ty < height) {
-      // data[(y + ty) * width + (x + tx)] = (uint8_t)TIFFGetR(tile[ty * tile_width + tx]);
-      for (int ty = 0; ty < TILE_HEIGHT; ty++) {
-	for (int tx = 0; tx < TILE_WIDTH; tx++) {
-	  //if (x == 16 && y == 16) //debug
-	  //  std::cerr << "[" << y * TILE_WIDTH + tx << "," <<
-	  //    y * TILE_HEIGHT + ty << "] = " << static_cast<unsigned int>(data[x * TILE_WIDTH+ tx][y * TILE_HEIGHT + ty]) << endl;
-	  //    std::cerr << (x * num_width_tiles + tx) << "," << y * num_height_tiles + ty << std::endl;
-	  if ( (x * TILE_WIDTH + tx) < width && (y * TILE_HEIGHT + ty) < height) {
-	    //if (x == 16 && y == 16)
-	      //std::cerr << " PARKING " << std::endl;
-	    outtilebuf[ty * TILE_WIDTH + tx] = data[x * TILE_WIDTH + tx][y * TILE_HEIGHT + ty];
-	  }
-	}
-      }
 
-      //std::cerr << " WRITING TILE " << x << " , " << y << " random " << static_cast<unsigned int>(outtilebuf[100]) << std::endl;
-      // Write the tile to the TIFF file
-      
-      if (TIFFWriteTile(otif, outtilebuf, x * TILE_WIDTH, y * TILE_HEIGHT, 0, 0) < 0) {
-	fprintf(stderr, "Error writing tile at (%d, %d)\n", x, y);
-	_TIFFfree(outtilebuf);
-	return 1;
-      }
-      
-      
-    }
-  }
-
-  // Clean up
-  _TIFFfree(outtilebuf);
+  otif.WriteTiledImage();
 
   return 0;
   
