@@ -27,8 +27,8 @@ int TiffHeader::__construct_header() {
 
   // allocate the buffe
   m_data.reset(new char[HEADER_BUFF]);
-	       //  m_data = std::make_unique<char[]>(HEADER_BUFF);
-   
+  //  m_data = std::make_unique<char[]>(HEADER_BUFF);
+  
   //m_data = std::unique_ptr<char[]> = new char[1024];
   
   // stream in the header

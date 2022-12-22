@@ -6,26 +6,14 @@
 #include <vector>
 #include <tiffio.h>
 
-enum TiffReaderType {
-  MODE_32_BIT;
-  MODE_8_BIT;
-};
-
-// template class to store the 2D image data
-template <typename T>
-struct Raster {
-  std::vector<std::vector<T>> raster;
-};
+#include "tiff_header.h"
 
 class TiffReader {
 
  public:
 
   // create an empty TiffReader
- TiffReader() {
-   m_tile_width = 0;
-   m_tile_height = 0;
- }
+  TiffReader() {}
 
   // destroy and close
   ~TiffReader();
@@ -35,19 +23,15 @@ class TiffReader {
   
   // set to whether image data should be read and stored
   // as 32 bit or 8 bit
-  int SetDataMode(TiffReaderType t);
+  //int SetDataMode(TiffReaderType t);
   
-  template <typename U>
-  int __read_image() {
-
+  //template <typename U>
+  //int __read_image() {
   
   // return the number of IFDs
   size_t NumDirs() const;
   
   int ReadImage();
-  
-  template <typename U>
-  Raster<U>* GetImageData() const;
   
  private:
 
@@ -55,13 +39,10 @@ class TiffReader {
 
   size_t m_num_dirs;
 
-  // matrix to store raster data
-  // really should be array not vector
-  
-  Raster m_data; 
+  TiffHeader m_tif_header;
 
-  template <typename U>
-  int __read_tiled_image();
+  //template <typename U>
+  //int __read_tiled_image();
 
 };
 

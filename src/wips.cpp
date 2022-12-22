@@ -36,6 +36,8 @@ int main(int argc, char **argv) {
 
   // open the output tiff
   TiffWriter otif(argv[2]);
+
+  TiffImage outimage;
   
   int dircount = 0;
     

@@ -3,13 +3,13 @@ CFLAGS = -std=c++11 `pkg-config --cflags vips-cpp libtiff-4`
 LDFLAGS = `pkg-config --libs vips-cpp libtiff-4`
 
 # Specify the source files
-SRCS = wips.cpp tiff_header.cpp tiff_writer.cpp tiff_reader.cpp tiff_ifd.cpp tiff_image.cpp
+SRCS = small.cpp tiff_header.cpp tiff_image.cpp
 
 # Specify the object files
 OBJS = $(SRCS:.cpp=.o)
 
 # Specify the executable file
-EXEC = wips
+EXEC = small
 
 # The default target
 all: $(EXEC)

@@ -10,6 +10,36 @@
 
 #define HEADER_BUFF 1024
 
+/* 
+ // TIFF header
+typedef	struct {
+	uint16	tiff_magic;	// magic number (defines byte order) 
+#define TIFF_MAGIC_SIZE		2
+	uint16	tiff_version;	// TIFF version number 
+#define TIFF_VERSION_SIZE	2
+	uint32	tiff_diroff;	// byte offset to first directory 
+#define TIFF_DIROFFSET_SIZE	4
+} TIFFHeader;
+*/
+
+
+/*
+// Default Read/Seek/Write definitions (tiffiop.h)
+#ifndef ReadOK
+#define	ReadOK(tif, buf, size) \
+	(TIFFReadFile(tif, (tdata_t) buf, (tsize_t)(size)) == (tsize_t)(size))
+#endif
+#ifndef SeekOK
+#define	SeekOK(tif, off) \
+	(TIFFSeekFile(tif, (toff_t) off, SEEK_SET) == (toff_t) off)
+#endif
+#ifndef WriteOK
+#define	WriteOK(tif, buf, size) \
+	(TIFFWriteFile(tif, (tdata_t) buf, (tsize_t) size) == (tsize_t) size)
+#endif
+*/
+
+
  // show whether the image file is big or little endian
 static const char _little[2] = {'I','I'};
 static const char _big[2] = {'M','M'};
@@ -28,7 +58,11 @@ class TiffHeader {
   void view_stdout() const;
     
  private:
-  
+
+  // TiffHeader class is directly from libtiff
+  // see https://github.com/LuaDist/libtiff/blob/43d5bd6d2da90e9bf254cd42c377e4d99008f00b/libtiff/tiff.h#L95
+  //TiffHeader m_tif_header;
+
   std::string m_filename;
   
   // smart pointer to the 
