@@ -2,6 +2,10 @@
 #include <cassert>
 #include <iostream>
 
+#define DP(x) fprintf(stderr,"DEBUG %d\n", x)
+#define DEBUG(var) printf(#var " = %d\n", var)
+
+
 TiffImage::TiffImage(TIFF* tif) {
 
   // clear the raster data
@@ -80,12 +84,6 @@ int TiffImage::__give_tiff(TIFF *tif) {
 
   // set the number of pixels
   m_pixels = static_cast<uint64_t>(m_width) * m_height;
-
-  // set the bits
-  if (m_bits_per_sample == 8 && m_samples_per_pixel == 1)
-    m_8bit = true;
-  else
-    m_8bit = false;
 
   return 0;
 }
@@ -188,8 +186,10 @@ std::string TiffImage::print() const {
 }
 
 template <typename T>
-T TiffImage::pixel(uint64_t x, uint64_t y) const {
+T TiffImage::pixel(uint64_t x, uint64_t y, int p) const {
 
+  assert(p == PIXEL_GRAY || p == PIXEL_RED || p == PIXEL_GREEN || p == PIXEL_BLUE || p == PIXEL_ALPHA);
+  
   // right now only two types allowed
   static_assert(std::is_same<T, uint32_t>::value || std::is_same<T, uint8_t>::value,
                 "T must be either uint32_t or uint8_t");
@@ -203,10 +203,35 @@ T TiffImage::pixel(uint64_t x, uint64_t y) const {
     fprintf(stderr, "ERROR: Accesing out of bound pixel at (%ul,%ul)\n",x,y);
     assert(false);
   }
-    
-  return static_cast<T*>(m_data)[dpos];
+  
+  if (p == PIXEL_GRAY) 
+    return static_cast<T*>(m_data)[dpos];
+
+  // else its rgb and so add the pixel offset
+  return static_cast<T*>(m_data)[dpos*3 + p];
 }
 
+template <typename T>
+T TiffImage::element(uint64_t e) const {
+
+  // right now only two types allowed
+  static_assert(std::is_same<T, uint32_t>::value || std::is_same<T, uint8_t>::value,
+                "T must be either uint32_t or uint8_t");
+
+  // check that the data has been read
+  assert(__is_rasterized());
+  
+  // check that the element is in bounds
+  if (e > m_pixels) {
+    fprintf(stderr, "ERROR: Accesing out of bound pixel (flattened) at (%ul)\n",e);
+    assert(false);
+  }
+    
+  return static_cast<T*>(m_data)[e];
+}
+
+
+// this should just be a static method not tied to a TiffImage
 int TiffImage::CopyTags(TIFF *otif) const {
 
   if (!__is_initialized())
@@ -226,29 +251,30 @@ int TiffImage::CopyTags(TIFF *otif) const {
   return 0;
 }
 
-double TiffImage::mean() const {
+double TiffImage::mean(TIFF* tif) const {
 
   if (!__is_initialized())
     return -1;
   if (!__is_rasterized())
     return -1;
 
-  double sum = 0;
-  uint64_t n; // calculated num pixels. Should be same as m_pixels
+  size_t mode = __get_mode(tif);
   
-  if (m_8bit) {
-    n = sizeof(m_data) / sizeof(uint8_t);
-    assert(n == m_pixels);
-    for (size_t i = 0; i < n; ++i)
+  double sum = 0;
+  
+  switch (mode) {
+  case 1:
+    for (size_t i = 0; i < m_pixels; ++i) {
       sum += static_cast<uint8_t*>(m_data)[i];
-  } else {
-    n = sizeof(m_data) / sizeof(uint32_t);
-    assert(n == m_pixels);
-    for (size_t i = 0; i < n; ++i)
+    }
+    break;
+  case 4:
+    for (size_t i = 0; i < m_pixels; ++i)
       sum += static_cast<uint32_t*>(m_data)[i];
+    break;
   }
-
-  return (sum / n);
+  
+  return (sum / m_pixels);
 
 }
 
@@ -278,6 +304,16 @@ int TiffImage::__tiled_write(TIFF* otif) const {
   assert(TIFFGetField(otif, TIFFTAG_TILEWIDTH, &o_tile_width));
   assert(TIFFGetField(otif, TIFFTAG_TILELENGTH, &o_tile_height));
 
+  uint16_t samples_per_pixel;
+  uint16_t bits_per_sample;
+  assert(TIFFGetField(otif, TIFFTAG_BITSPERSAMPLE, &bits_per_sample));
+  assert(TIFFGetField(otif, TIFFTAG_SAMPLESPERPIXEL, &samples_per_pixel));
+
+  int m_mode = __get_mode(otif);
+  std::cerr << " WRITE MODE " << m_mode << std::endl;
+  std::cerr << " TILED WRITE " << TIFFTileSize(otif) << std::endl;
+  assert(TIFFTileSize(otif) / (o_tile_width * o_tile_height) == m_mode);
+
   // error check that tile dimensions
   if (o_tile_width % 16) {
     fprintf(stderr, "ERROR: output tile dims must be multiple of 16, it is: %d\n", o_tile_width);
@@ -300,6 +336,7 @@ int TiffImage::__tiled_write(TIFF* otif) const {
   int x, y;
   for (y = 0; y < m_height; y += o_tile_height) {
     for (x = 0; x < m_width; x += o_tile_width) {
+      if (y==384)
       // Fill the tile buffer with data
       for (int ty = 0; ty < o_tile_height; ty++) {
 	for (int tx = 0; tx < o_tile_width; tx++) {
@@ -308,18 +345,20 @@ int TiffImage::__tiled_write(TIFF* otif) const {
 	  uint64_t d_pos = yp * m_width + xp; // index of pixel in the entire image
 	  uint64_t t_pos = ty * o_tile_width + tx; // index of pixel in this particular tile
 	  if (xp < m_width && yp < m_height) {
-	    if (m_8bit) {
-	      // static_cast<uint8_t*>(buf)[t_pos] =
-	      //static_cast<uint8_t*>(m_data)[d_pos];
-	      static_cast<uint8_t*>(buf)[t_pos] = pixel<uint8_t>(xp, yp);
-	    } else {
-	      //static_cast<uint32_t*>(buf)[t_pos] = static_cast<uint32_t*>(m_data)[d_pos];
-	      static_cast<uint32_t*>(buf)[t_pos] = pixel<uint32_t>(xp, yp); 
+	    if (m_mode == 1) {
+	      static_cast<uint8_t*>(buf)[t_pos] = pixel<uint8_t>(xp, yp, PIXEL_GRAY);
+	    } else if (m_mode == 4){
+	      static_cast<uint32_t*>(buf)[t_pos] = pixel<uint32_t>(xp, yp, PIXEL_GRAY); 
+	    } else if (m_mode == 3) {
+	      t_pos = t_pos * 3;
+	      static_cast<uint8_t*>(buf)[t_pos]     = pixel<uint8_t>(xp, yp, PIXEL_RED);
+	      static_cast<uint8_t*>(buf)[t_pos + 1] = pixel<uint8_t>(xp, yp, PIXEL_GREEN);
+	      static_cast<uint8_t*>(buf)[t_pos + 2] = pixel<uint8_t>(xp, yp, PIXEL_BLUE);
 	    }
 	  }
 	}
       }
-      
+
       // Write the tile to the TIFF file
       // this function will automatically calculate memory size from TIFF tags
       if (TIFFWriteTile(otif, buf, x, y, 0, 0) < 0) { 
@@ -332,27 +371,32 @@ int TiffImage::__tiled_write(TIFF* otif) const {
   
   // Clean up
   _TIFFfree(buf);
-
+  
   return 0;
 }
 
-int TiffImage::__alloc() {
+int TiffImage::__alloc(TIFF* tif) {
 
   assert(m_pixels);
 
-  if (m_8bit) {
-    m_data = _TIFFmalloc(m_pixels * sizeof(uint8_t));
-    //fprintf(stderr, "alloc size %f GB\n", m_pixels / 1e9);
-  } else {
-    m_data = _TIFFmalloc(sizeof(uint32_t) * m_pixels);
-    //fprintf(stderr, "alloc size %f GB\n", m_pixels * 4 / 1e9); 
-  }
-
+  size_t mode = __get_mode(tif);
+  
+  switch (mode) {
+      case 1:
+	m_data = _TIFFmalloc(m_pixels * sizeof(uint8_t));
+	//fprintf(stderr, "alloc size %f GB\n", m_pixels / 1e9);
+	break;
+	case 4:
+	  m_data = _TIFFmalloc(sizeof(uint32_t) * m_pixels);
+	  //fprintf(stderr, "alloc size %f GB\n", m_pixels * 4 / 1e9);
+	  break;
+    }
+  
   if (m_data == NULL) {
     fprintf(stderr, "ERROR: unable to allocate image raster\n");
     return 1;
   }
-
+  
   return 0;
 }
 
@@ -380,7 +424,7 @@ int TiffImage::ReadToRaster(TIFF* tif) {
   }
   
   // just in time allocation of memory
-  __alloc();
+  __alloc(tif);
   
   // read in tiled image
   if (m_tilewidth) {
@@ -393,6 +437,8 @@ int TiffImage::ReadToRaster(TIFF* tif) {
 
 int TiffImage::__tiled_read(TIFF* i_tif) {
 
+  size_t mode = __get_mode(i_tif);
+  
   // allocate memory for a single tile
   void* tile = _TIFFmalloc(TIFFTileSize(i_tif));
 
@@ -411,12 +457,15 @@ int TiffImage::__tiled_read(TIFF* i_tif) {
       for (int ty = 0; ty < m_tileheight; ty++) {
 	for (int tx = 0; tx < m_tilewidth; tx++) {
 	  if (x + tx < m_width && y + ty < m_height) {
-	    if (m_8bit) {
+	    switch (mode) {
+	    case 1:
 	      static_cast<uint8_t*>(m_data)[(y + ty) * m_width + x + tx] =
 		static_cast<uint8_t*>(tile)[ty * m_tilewidth + tx];
-	    } else {
+	      break;
+	    case 4:
 	      static_cast<uint32_t*>(m_data)[(y + ty) * m_width + x + tx] =
 		static_cast<uint32_t*>(tile)[ty * m_tilewidth + tx];
+	      break;
 	    }
 	  }
 	} // tile x loop
@@ -456,4 +505,57 @@ bool TiffImage::__is_rasterized() const {
     return false;
   }
   return true;
+}
+
+int TiffImage::MergeGrayToRGB(const TiffImage &r, const TiffImage &g, const TiffImage &b) {
+
+  // will need a bunch of error checking here
+  clear_raster();
+
+  assert(r.numPixels() == g.numPixels());
+  assert(g.numPixels() == b.numPixels());
+
+  m_pixels = r.numPixels();
+  
+  // allocate memory for a new TIFF
+  m_data = _TIFFmalloc(m_pixels * 3 * sizeof(uint8_t));
+  
+  if (m_data == NULL) {
+    fprintf(stderr, "Unable to allocate memory in MergeGrayToRGB\n");
+    return 1;
+  }
+
+  for (size_t i = 0; i < m_pixels * 3; ++i) {
+
+    static_cast<uint8_t*>(m_data)[i    ] = r.element<uint8_t>(i / 3);
+    static_cast<uint8_t*>(m_data)[i + 1] = g.element<uint8_t>(i / 3);
+    static_cast<uint8_t*>(m_data)[i + 2] = b.element<uint8_t>(i / 3);        
+    
+    /*    uint32_t rgb = r.element<uint8_t>(i);
+    rgb = (rgb << 8) | g.element<uint8_t>(i);
+    rgb = (rgb << 8) | b.element<uint8_t>(i);
+    //rgb = (rgb << 8) | static_cast<uint8_t>(255); // alpha
+    static_cast<uint32_t*>(m_data)[i] = rgb;
+    //static_cast<uint8_t*>(m_data)[i] = r.element<uint8_t>(i);
+    */
+  }
+
+  return 0;
+}
+
+size_t TiffImage::__get_mode(TIFF* tif) const {
+
+  // RGB
+  if (GetIntTag(tif, TIFFTAG_SAMPLESPERPIXEL) == 3)
+    return 3;
+  else if (GetIntTag(tif, TIFFTAG_BITSPERSAMPLE) == 8)
+    return 1;
+  else if (GetIntTag(tif, TIFFTAG_BITSPERSAMPLE) == 16)
+    return 2;
+  else if (GetIntTag(tif, TIFFTAG_BITSPERSAMPLE) == 32)
+    return 4;
+  else if (GetIntTag(tif, TIFFTAG_SAMPLESPERPIXEL) == 4)
+    return 5;
+  return 0;
+  
 }

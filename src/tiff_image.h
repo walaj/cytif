@@ -6,6 +6,30 @@
 #include <vector>
 #include <tiffio.h>
 #include <sstream>
+#include "tiff_cp.h"
+
+#define PIXEL_GRAY 999
+#define PIXEL_RED 0
+#define PIXEL_GREEN 1
+#define PIXEL_BLUE 2
+#define PIXEL_ALPHA 3
+
+
+#include <random>
+
+int getRandomInt() {
+    // Create a random number generator
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    // Set the range of the generator to [0, 255]
+    std::uniform_int_distribution<> dis(0, 255);
+
+    // Generate and return a random integer
+    return dis(gen);
+}
+
+// copy tags from one TIFF to another
+static int TiffTagCopy(TIFF* o, TIFF* d);
 
 class TiffImage {
 
@@ -32,7 +56,11 @@ class TiffImage {
 
   // access a pixel as type T (uint8_t or uint32_t)
   template <typename T>  
-  T pixel(uint64_t x, uint64_t y) const;
+  T pixel(uint64_t x, uint64_t y, int p) const;
+
+  // access a pixel as type T (uint8_t or uint32_t) from the flattened index
+  template <typename T>  
+  T element(uint64_t e) const;
 
   // copy the image tags from one image to another
   int CopyTags(TIFF *otif) const;
@@ -44,7 +72,13 @@ class TiffImage {
   void clear_raster();
 
   // mean pixel value
-  double mean() const;
+  double mean(TIFF* tiff) const;
+
+  // take three 8 bit gray scale images and convert to RGB
+  int MergeGrayToRGB(const TiffImage &r, const TiffImage &g, const TiffImage &b);
+
+  /// return the total number of pixels
+  uint64_t numPixels() const { return m_pixels; }
   
  private:
 
@@ -57,12 +91,10 @@ class TiffImage {
   size_t m_current_dir = 0;
   
   // flag for whether data is stored as 1 byte or 4 bytes
-  bool m_8bit = true;  
-
-  uint32_t m_width, m_height;
+  uint32_t m_width = 0, m_height = 0;
 
   // total number of pixels in the image
-  uint64_t m_pixels;
+  uint64_t m_pixels = 0;
 
   // various TIFF flags
   uint32_t m_tilewidth, m_tileheight;
@@ -70,7 +102,7 @@ class TiffImage {
   uint16_t m_extra_samples;
 
   // allocate the memory for the image raster
-  int __alloc();
+  int __alloc(TIFF *tif);
 
   // sub method to ReadToRaster for tiled image
   int __tiled_read(TIFF *tif);
@@ -86,6 +118,8 @@ class TiffImage {
 
   // has the image been assciated with a TIFF
   bool __is_initialized() const;
+
+  size_t __get_mode(TIFF* tif) const;
   
 };
 
