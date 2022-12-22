@@ -88,103 +88,6 @@ int TiffImage::__give_tiff(TIFF *tif) {
   return 0;
 }
 
-std::string TiffImage::print() const {
-
-  if (!__is_initialized())
-    return("no associated TIFF file");
-  
-  std::stringstream ss;
-
-  ss << "TIFF name: " << TIFFFileName(m_tif) << std::endl;
-
-    // *** uint32		tif_flags;
-  // sets a number of options for this TIFF
-  // see https://github.com/LuaDist/libtiff/blob/43d5bd6d2da90e9bf254cd42c377e4d99008f00b/libtiff/tiffiop.h#L100
-  ss << "------ Image flags ------" << std::endl;  
-  ss << "  TIFF Tiled: " << TIFFIsTiled(m_tif) << std::endl;
-  ss << "  TIFF Byte swapped: " << TIFFIsByteSwapped(m_tif) << std::endl;
-  ss << "  TIFF Upsampled: " << TIFFIsUpSampled(m_tif) << std::endl;
-  ss << "  TIFF BigEndian: " << TIFFIsBigEndian(m_tif) << std::endl;
-  ss << "  TIFF MSB-2-LSB: " << TIFFIsMSB2LSB(m_tif) << std::endl;
-   
-  ss << "------ Image tags ------" << std::endl;
-  ss << "  Image size: " <<  m_width << "x" << m_height << std::endl;
-  ss << "  Extra samples: " << m_extra_samples << std::endl;
-  ss << "  Samples per pixel: " << m_samples_per_pixel << std::endl;
-  ss << "  Bits per sample: " << m_bits_per_sample << std::endl;
-  ss << "  Planar config: " << m_planar << std::endl;    
-  ss << "------ Internals -------" << std::endl;
-  ss << "  Current offset: 0x" << std::hex << TIFFCurrentDirOffset(m_tif) << std::endl;
-  // *** uint32		tif_row;	/* current scanline */
-  ss << "  Current row: " << std::dec << TIFFCurrentRow(m_tif) << std::endl;
-  // *** tdir_t tif_curdir;	/* current directory (index) */
-  ss << "  Current dir: " << TIFFCurrentDirectory(m_tif) << std::endl;
-
-  // *** tstrip_t	tif_curstrip;	/* current strip for read/write */
-  if (!m_tilewidth)
-    ss << "  Current strip: " << TIFFCurrentStrip(m_tif) << std::endl;
-
-  ss << "  BigTiff? " << (TIFFIsBigTIFF(m_tif) ? "True" : "False") << std::endl;
-
-  // *** int tif_mode;	/* open mode (O_*) */
-  // https://github.com/LuaDist/libtiff/blob/43d5bd6d2da90e9bf254cd42c377e4d99008f00b/contrib/acorn/convert#L145
-  // O_RDONLY 0
-  // O_WRONLY 1
-  // O_RDWR 2
-  // O_APPEND 8
-  // O_CREAT		0x200
-  // O_TRUNC		0x40
-  ss << "  TIFF read/write mode: " << TIFFGetMode(m_tif) << std::endl;
-
-  // *** int tif_fd -- open file descriptor
-  ss << "  TIFF I/O descriptor: " << TIFFFileno(m_tif) << std::endl;
-
-  
-  if (m_tilewidth) {
-    ss << "------ Tile Info -----" << std::endl;    
-    ///
-    /// tile support
-    ///
-    ss << "  Tiles: " << m_tilewidth << "x" << m_tileheight << std::endl;    
-    ss << "  Current tile: " << TIFFCurrentTile(m_tif) << std::endl;
-    
-    // return number of bytes of row-aligned tile
-    ss << "  Tile size (bytes): " << TIFFTileSize(m_tif) << std::endl;
-    
-    // return the number of bytes in each row of a tile
-    ss << "  Tile row size (bytes): " << TIFFTileRowSize(m_tif) << std::endl;
-    
-    // compute the number of tiles in an image
-    ss << "  Tile count: " << TIFFNumberOfTiles(m_tif) << std::endl;
-    
-  }
-  
-  // *** toff_t	 tif_nextdiroff;	/* file offset of following directory */
-  
-  // *** toff_t*  tif_dirlist;	/* list of offsets to already seen */
-  
-  // *** uint16	 tif_dirnumber;  /* number of already seen directories */
-
-  // *** TIFFDirectory	tif_dir;	/* internal rep of current directory */
-
-  // *** TIFFHeader	tif_header;	/* file's header block */
-  /* https://github.com/LuaDist/libtiff/blob/43d5bd6d2da90e9bf254cd42c377e4d99008f00b/libtiff/tiff.h#L95
-  // TIFF header
-  typedef	struct {
-  uint16	tiff_magic;	// magic number (defines byte order) 
-  #define TIFF_MAGIC_SIZE		2
-  uint16	tiff_version;	// TIFF version number 
-  #define TIFF_VERSION_SIZE	2
-  uint32	tiff_diroff;	// byte offset to first directory 
-  #define TIFF_DIROFFSET_SIZE	4
-  } TIFFHeader;
-  */
-
-  return ss.str();
-  
-  
-}
-
 template <typename T>
 T TiffImage::pixel(uint64_t x, uint64_t y, int p) const {
 
@@ -230,26 +133,6 @@ T TiffImage::element(uint64_t e) const {
   return static_cast<T*>(m_data)[e];
 }
 
-
-// this should just be a static method not tied to a TiffImage
-int TiffImage::CopyTags(TIFF *otif) const {
-
-  if (!__is_initialized())
-    return 1;
-  
-  TIFFSetField(otif, TIFFTAG_IMAGEWIDTH, m_width); 
-  TIFFSetField(otif, TIFFTAG_IMAGELENGTH, m_height); 
-  TIFFSetField(otif, TIFFTAG_SAMPLESPERPIXEL, m_samples_per_pixel);
-  TIFFSetField(otif, TIFFTAG_BITSPERSAMPLE, m_bits_per_sample);
-  //TIFFSetField(otif, TIFFTAG_ORIENTATION, ORIENTATION_TOPLEFT);
-  TIFFSetField(otif, TIFFTAG_TILEWIDTH, m_tilewidth);
-  TIFFSetField(otif, TIFFTAG_TILELENGTH, m_tileheight);
-  TIFFSetField(otif, TIFFTAG_PHOTOMETRIC, m_photometric);
-  TIFFSetField(otif, TIFFTAG_PLANARCONFIG, m_planar);
-  TIFFSetField(otif, TIFFTAG_EXTRASAMPLES, m_extra_samples);
-
-  return 0;
-}
 
 double TiffImage::mean(TIFF* tif) const {
 

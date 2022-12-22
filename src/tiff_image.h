@@ -45,9 +45,6 @@ class TiffImage {
     clear_raster();
   }
   
-  // human readable print
-  std::string print() const;
-
   // access the data pointer
   void* data() const { return m_data; }
 
@@ -61,9 +58,6 @@ class TiffImage {
   // access a pixel as type T (uint8_t or uint32_t) from the flattened index
   template <typename T>  
   T element(uint64_t e) const;
-
-  // copy the image tags from one image to another
-  int CopyTags(TIFF *otif) const;
 
   // write the raster to the image using an already opened TIFF
   int write(TIFF* otif) const;
