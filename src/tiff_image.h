@@ -17,6 +17,7 @@
 
 #include <random>
 
+/*
 int getRandomInt() {
     // Create a random number generator
     std::random_device rd;
@@ -26,7 +27,7 @@ int getRandomInt() {
 
     // Generate and return a random integer
     return dis(gen);
-}
+    }*/
 
 // copy tags from one TIFF to another
 static int TiffTagCopy(TIFF* o, TIFF* d);
@@ -73,6 +74,9 @@ class TiffImage {
 
   /// return the total number of pixels
   uint64_t numPixels() const { return m_pixels; }
+
+  // print the mean number of pixels to std, for each channel
+  int light_mean(TIFF* tif) const;
   
  private:
 
@@ -113,7 +117,11 @@ class TiffImage {
   // has the image been assciated with a TIFF
   bool __is_initialized() const;
 
+  // get the mode (gray 8-bit, RBG etc)
   size_t __get_mode(TIFF* tif) const;
+
+  // check that the TIFF is valid pointer
+  int __check_tif(TIFF* tif) const;
   
 };
 

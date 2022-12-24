@@ -19,12 +19,13 @@ TiffImage::TiffImage(TIFF* tif) {
 
 int TiffImage::__give_tiff(TIFF *tif) {
 
+  __check_tif(tif);
+  
   // this object now stores a pointer to the input tif
   m_tif = tif;
-  
+
   // store the offset of the first tif
   m_current_dir = TIFFCurrentDirOffset(tif);
-
   if (!TIFFGetField(tif, TIFFTAG_IMAGEWIDTH, &m_width)) {
     fprintf(stderr, "ERROR: image does not have a width tag specified\n");
     m_width = 0;
@@ -57,7 +58,6 @@ int TiffImage::__give_tiff(TIFF *tif) {
     fprintf(stderr, "WARNING: image does not have a PHOTOMETRIC tag. Assuming MINISBLACK\n");
     m_photometric = PHOTOMETRIC_MINISBLACK;
   }
-
   // note that optinos for planar config are:
   // PLANARCONFIG_CONTIG 1 -- RGBA RGBA RGBA etc (interleaved)
   // PLANARCONFIG_SEPARATE 2 -- RRRRRR GGGGGG BBBBB etc (separate planes)
@@ -75,6 +75,7 @@ int TiffImage::__give_tiff(TIFF *tif) {
    * be handled.  If 0 is returned, emsg contains the reason
    * why it is being rejected.
    */
+
   char emsg[1024];
   int rgba_ok = TIFFRGBAImageOK(tif, emsg);
   if (!rgba_ok) {
@@ -178,6 +179,82 @@ int TiffImage::write(TIFF* otif) const {
   
 }
 
+int TiffImage::light_mean(TIFF* tif) const {
+
+  __check_tif(tif);
+  
+  size_t mode = __get_mode(tif);
+
+  // allocate memory for a single tile
+  void* tile  = _TIFFmalloc(TIFFTileSize(tif) * 3);
+
+  // loop through the tiles
+  int x, y;
+
+  size_t ifd = 0;
+
+  double np = static_cast<uint64_t>(m_width) * m_height;
+  
+  do {
+
+    __check_tif(tif);
+
+    double r = 0;
+    double g = 0;
+    double b = 0;
+    double t = 0;
+    
+    for (y = 0; y < m_height; y += m_tileheight) {
+      for (x = 0; x < m_width; x += m_tilewidth) {
+	
+	// Read the tile
+	if (TIFFReadTile(tif, tile, x, y, 0, 0) < 0) {
+	  fprintf(stderr, "Error reading tile at (%d, %d)\n", x, y);
+	  return 1;
+	}
+	
+	// Get the mean
+	for (int ty = 0; ty < m_tileheight; ty++) {
+	  for (int tx = 0; tx < m_tilewidth; tx++) {
+	    if (x + tx < m_width && y + ty < m_height) {
+	      switch (mode) {
+	      case 1:
+		t += static_cast<uint8_t*>(tile)[ty * m_tilewidth + tx];
+		break;
+	      case 3:
+		r += static_cast<uint8_t*>(tile)[(ty * m_tilewidth + tx) * 3    ];
+		g += static_cast<uint8_t*>(tile)[(ty * m_tilewidth + tx) * 3 + 1];
+		b += static_cast<uint8_t*>(tile)[(ty * m_tilewidth + tx) * 3 + 2];
+		break;
+	      case 4:
+		t += static_cast<uint32_t*>(tile)[ty * m_tilewidth + tx];	      
+		break;
+	      }
+	    }
+	  } // tile x loop
+	} // tile y loop
+      } // image x loop
+    } // image y loop
+
+    fprintf(stdout, "------ IFD %d ------\n", ifd);
+    switch (mode) {
+    case 1:
+    case 4:
+      fprintf(stdout, "Mean: %f\n", t / np);
+      break;
+    case 3:
+      fprintf(stdout, "Mean: (R) %f (G) %f (B) %f\n", r / np, g / np, b / np);    
+    }
+
+    ++ifd;
+  } while (TIFFReadDirectory(tif));
+    
+  _TIFFfree(tile);
+    
+  return 0;
+  
+}
+
 int TiffImage::__tiled_write(TIFF* otif) const {
 
   assert(TIFFIsTiled(otif));
@@ -193,8 +270,6 @@ int TiffImage::__tiled_write(TIFF* otif) const {
   assert(TIFFGetField(otif, TIFFTAG_SAMPLESPERPIXEL, &samples_per_pixel));
 
   int m_mode = __get_mode(otif);
-  std::cerr << " WRITE MODE " << m_mode << std::endl;
-  std::cerr << " TILED WRITE " << TIFFTileSize(otif) << std::endl;
   assert(TIFFTileSize(otif) / (o_tile_width * o_tile_height) == m_mode);
 
   // error check that tile dimensions
@@ -441,4 +516,13 @@ size_t TiffImage::__get_mode(TIFF* tif) const {
     return 5;
   return 0;
   
+}
+
+int TiffImage::__check_tif(TIFF* tif) const {
+
+  if (tif == NULL || tif == 0) {
+    fprintf(stderr, "Error: TIFF is NULL\n");
+    return 1;
+  }
+  return 0;
 }
