@@ -195,92 +195,135 @@ int TiffImage::light_mean(TIFF* tif) const {
   __check_tif(tif);
   
   size_t mode = __get_mode(tif);
-
-  // allocate memory for a single tile
-  void* tile  = _TIFFmalloc(TIFFTileSize(tif) * 3);
-
+  
+  void* buf;
+  
+  if (TIFFIsTiled(tif)) {
+    // allocate memory for a single tile
+    buf  = _TIFFmalloc(TIFFTileSize(tif) * mode);
+  } else {
+    buf  = _TIFFmalloc(TIFFScanlineSize(tif) * mode);
+  }
+  
   // loop through the tiles
   int x, y;
-
+  
   size_t ifd = 0;
-
+  
   double np = static_cast<uint64_t>(m_width) * m_height;
   
   do {
-
+    
     __check_tif(tif);
-
+    
     double r = 0;
     double g = 0;
     double b = 0;
     double t = 0;
-
+    
     if (verbose)
       std::cerr << "...starting image " <<
 	ifd << " with " << AddCommas(static_cast<uint64_t>(np)) <<
 	" pixels" << std::endl;
-
+    
     uint64_t m_pix = 0; // running count for verbose command
     
-    for (y = 0; y < m_height; y += m_tileheight) {
-      for (x = 0; x < m_width; x += m_tilewidth) {
-	
-	// Read the tile
-	if (TIFFReadTile(tif, tile, x, y, 0, 0) < 0) {
-	  fprintf(stderr, "Error reading tile at (%d, %d)\n", x, y);
-	  return 1;
-	}
-	
-	// Get the mean
-	for (int ty = 0; ty < m_tileheight; ty++) {
-	  for (int tx = 0; tx < m_tilewidth; tx++) {
-	    if (x + tx < m_width && y + ty < m_height) {
-	      
-	      ++m_pix;
-	      if (verbose && m_pix % static_cast<uint64_t>(1e9) == 0)
-		std::cerr << "...working on pixel: " <<
-		  AddCommas(static_cast<uint64_t>(m_pix)) << std::endl;
-	      
-	      switch (mode) {
-	      case 1:
-		t += static_cast<uint8_t*>(tile)[ty * m_tilewidth + tx];
-		break;
-	      case 3:
-		r += static_cast<uint8_t*>(tile)[(ty * m_tilewidth + tx) * 3    ];
-		g += static_cast<uint8_t*>(tile)[(ty * m_tilewidth + tx) * 3 + 1];
-		b += static_cast<uint8_t*>(tile)[(ty * m_tilewidth + tx) * 3 + 2];
-		break;
-	      case 4:
-		t += static_cast<uint32_t*>(tile)[ty * m_tilewidth + tx];	      
-		break;
-	      }
+    if (TIFFIsTiled(tif)) {
+	for (y = 0; y < m_height; y += m_tileheight) {
+	  for (x = 0; x < m_width; x += m_tilewidth) {
+	    
+	    // Read the tile
+	    if (TIFFReadTile(tif, buf, x, y, 0, 0) < 0) {
+	      fprintf(stderr, "Error reading tile at (%d, %d)\n", x, y);
+	      return 1;
 	    }
-	  } // tile x loop
-	} // tile y loop
-      } // image x loop
-    } // image y loop
+	    
+	    // Get the mean
+	    for (int ty = 0; ty < m_tileheight; ty++) {
+	      for (int tx = 0; tx < m_tilewidth; tx++) {
+		if (x + tx < m_width && y + ty < m_height) {
+		  
+		  ++m_pix;
+		  if (verbose && m_pix % static_cast<uint64_t>(1e9) == 0)
+		    std::cerr << "...working on pixel: " <<
+		      AddCommas(static_cast<uint64_t>(m_pix)) << std::endl;
+		  
+		  switch (mode) {
+		  case 1:
+		    t += static_cast<uint8_t*>(buf)[ty * m_tilewidth + tx];
+		    break;
+		  case 3:
+		    r += static_cast<uint8_t*>(buf)[(ty * m_tilewidth + tx) * 3    ];
+		    g += static_cast<uint8_t*>(buf)[(ty * m_tilewidth + tx) * 3 + 1];
+		    b += static_cast<uint8_t*>(buf)[(ty * m_tilewidth + tx) * 3 + 2];
+		    break;
+		  case 4:
+		    t += static_cast<uint32_t*>(buf)[ty * m_tilewidth + tx];	      
+		    break;
+		  }
+		}
+	      } // tile x loop
+	    } // tile y loop
+	  } // image x loop
+	} // image y loop
+      }
+      
+      // lined image
+      else {
+	
+	uint64_t ls = TIFFScanlineSize(tif);
+	for (uint64_t y = 0; y < m_height; y++) {
+	  for (uint64_t x = 0; x < ls; x++) {
 
-    fprintf(stdout, "------ IFD %d ------\n", ifd);
-    switch (mode) {
-    case 1:
-    case 4:
-      fprintf(stdout, "Mean: %f\n", t / np);
-      std::cerr << " sum " << AddCommas(static_cast<uint64_t>(t)) << " np " << np << std::endl;
-      break;
-    case 3:
-      fprintf(stdout, "Mean: (R) %f (G) %f (B) %f\n", r / np, g / np, b / np);
-      break;
-    }
-
-    ++ifd;
-  } while (TIFFReadDirectory(tif));
+	    // Read the line
+	    if (TIFFReadScanline(tif, buf, y) < 0) {
+	      fprintf(stderr, "Error reading line at row %ul\n", y);
+	      return 1;
+	    }
+	    
+	    ++m_pix;
+	    if (verbose && m_pix % static_cast<uint64_t>(1e9) == 0)
+	      std::cerr << "...working on pixel: " <<
+		AddCommas(static_cast<uint64_t>(m_pix)) << std::endl;
+	    
+	    switch (mode) {
+	    case 1:
+	      t += static_cast<uint8_t*>(buf)[x];
+	    break;
+	    case 3:
+	      r += static_cast<uint8_t*>(buf)[x * 3    ];
+	      g += static_cast<uint8_t*>(buf)[x * 3 + 1];
+	      b += static_cast<uint8_t*>(buf)[x * 3 + 2];
+	      break;
+	    case 4:
+	      t += static_cast<uint32_t*>(buf)[x];	      
+	      break;
+	    }
+	  } // x loop
+	} // y loop
+      } //scanline else
+      
+      fprintf(stdout, "------ IFD %d ------\n", ifd);
+      switch (mode) {
+      case 1:
+      case 4:
+	fprintf(stdout, "Mean: %f\n", t / np);
+	std::cerr << " sum " << AddCommas(static_cast<uint64_t>(t)) << " np " << np << std::endl;
+	break;
+      case 3:
+	fprintf(stdout, "Mean: (R) %f (G) %f (B) %f\n", r / np, g / np, b / np);
+	break;
+      }
+      
+      ++ifd;
+      } while (TIFFReadDirectory(tif));
     
-  _TIFFfree(tile);
+    _TIFFfree(buf);
     
-  return 0;
+    return 0;
+    
+  }
   
-}
-
 int TiffImage::__tiled_write(TIFF* otif) const {
 
   assert(TIFFIsTiled(otif));
@@ -409,15 +452,70 @@ int TiffImage::ReadToRaster(TIFF* tif) {
   
   // just in time allocation of memory
   __alloc(tif);
+
+  std::cerr << " tiled " << TIFFIsTiled(tif) << " width " << m_tilewidth << std::endl;
   
   // read in tiled image
-  if (m_tilewidth) {
-   assert(m_tileheight);
+  if (TIFFIsTiled(tif) && m_tilewidth) {
+    assert(m_tileheight);
     return(__tiled_read(tif));
+  } else {
+    return(__lined_read(tif));
   }
   
   return 0;
 }
+
+int TiffImage::__lined_read(TIFF* i_tif) {
+
+  size_t mode = __get_mode(i_tif);
+
+  uint64_t ls = TIFFScanlineSize(i_tif);
+  
+  // allocate memory for a single line
+  void* buf = _TIFFmalloc(TIFFScanlineSize(i_tif));
+
+  uint64_t m_pix = 0;
+  for (uint64_t y = 0; y < m_height; y++) {
+
+    // Read the line
+    if (TIFFReadScanline(i_tif, buf, y) < 0) {
+      fprintf(stderr, "Error reading line at row %ul\n", y);
+      return 1;
+    }
+    
+    // Copy the tile data into the image buffer
+    for (uint64_t x = 0; x < ls; x++) {
+	if (x < m_width && y < m_height) {
+	    
+	    ++m_pix;
+	    if (verbose && m_pix % static_cast<uint64_t>(1e9) == 0)
+	      std::cerr << "...working on pixel: " <<
+		AddCommas(static_cast<uint64_t>(m_pix)) << std::endl;
+
+	    uint64_t ind = y * m_width + x;
+	    
+	    assert(static_cast<uint8_t*>(m_data)[ind] == 0);
+	    switch (mode) {
+	  case 1:
+	    static_cast<uint8_t*>(m_data)[ind] =
+	      static_cast<uint8_t*>(buf)[x];
+	    break;
+	  case 4:
+	    static_cast<uint32_t*>(m_data)[ind] =
+	     static_cast<uint32_t*>(buf)[x];
+	    break;
+	  }
+	}
+    } // x loop
+  }
+
+  _TIFFfree(buf);
+
+  return 0;
+}
+
+
 
 
 int TiffImage::__tiled_read(TIFF* i_tif) {
@@ -437,7 +535,7 @@ int TiffImage::__tiled_read(TIFF* i_tif) {
     for (x = 0; x < m_width; x += m_tilewidth) {
       
       // Read the tile
-      if (TIFFReadTile(m_tif, tile, x, y, 0, 0) < 0) {
+      if (TIFFReadTile(i_tif, tile, x, y, 0, 0) < 0) {
 	fprintf(stderr, "Error reading tile at (%d, %d)\n", x, y);
 	return 1;
       }
@@ -534,8 +632,12 @@ int TiffImage::MergeGrayToRGB(const TiffImage &r, const TiffImage &g, const Tiff
     return 1;
   }
 
-  for (size_t i = 0; i < m_pixels * 3; ++i) {
+  for (uint64_t i = 0; i < m_pixels * 3; ++i) {
 
+    if (verbose && i % static_cast<uint64_t>(1e9) == 0)
+      std::cerr << "...working on pixel: " <<
+	AddCommas(static_cast<uint64_t>(i)) << std::endl;
+    
     static_cast<uint8_t*>(m_data)[i    ] = r.element<uint8_t>(i / 3);
     static_cast<uint8_t*>(m_data)[i + 1] = g.element<uint8_t>(i / 3);
     static_cast<uint8_t*>(m_data)[i + 2] = b.element<uint8_t>(i / 3);        

@@ -110,6 +110,9 @@ class TiffImage {
 
   // sub method to ReadToRaster for tiled image
   int __tiled_read(TIFF *tif);
+
+  // sub method to ReadToRaster for scanline image
+  int __lined_read(TIFF* i_tif);
   
   // pass a new TIFF file
   int __give_tiff(TIFF *tif);

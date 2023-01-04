@@ -104,7 +104,9 @@ int findmean() {
   // a single pass just causes memory overruns from the C memmap func
   TIFF* tif = tiffload(opt::infile.c_str(), "rm");
 
+  std::cerr << "HERE " << std::endl;
   TiffImage im(tif);
+  std::cerr << "HERE2 " << std::endl;  
   im.setverbose(opt::verbose);
 
   // this routine will handle printing output to stdout
