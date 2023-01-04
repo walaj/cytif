@@ -6,7 +6,9 @@
 #include <vector>
 #include <tiffio.h>
 #include <sstream>
+
 #include "tiff_cp.h"
+#include "tiff_utils.h"
 
 #define PIXEL_GRAY 999
 #define PIXEL_RED 0
@@ -77,9 +79,13 @@ class TiffImage {
 
   // print the mean number of pixels to std, for each channel
   int light_mean(TIFF* tif) const;
+
+  void setverbose(bool v) { verbose = v; }
   
  private:
 
+  bool verbose= false;
+  
   // tif to read from
   TIFF* m_tif = NULL; 
 
@@ -122,6 +128,8 @@ class TiffImage {
 
   // check that the TIFF is valid pointer
   int __check_tif(TIFF* tif) const;
+
+  int __tileind(TIFF* tif, uint32_t x, uint32_t y) const;
   
 };
 

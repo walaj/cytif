@@ -105,6 +105,7 @@ int findmean() {
   TIFF* tif = tiffload(opt::infile.c_str(), "rm");
 
   TiffImage im(tif);
+  im.setverbose(opt::verbose);
 
   // this routine will handle printing output to stdout
   im.light_mean(tif);
@@ -123,10 +124,20 @@ static int gray2rgb() {
   // read in the TIFF as a red channel
   TVERB("...reading red");
   TIFF *r_itif = TIFFOpen(opt::infile.c_str(), "rm");
-  TiffImage rimage(r_itif);
+  TiffImage rimage(r_itif);  
+  rimage.setverbose(opt::verbose);
   rimage.ReadToRaster(r_itif);
 
   TVERB("R mean: " << rimage.mean(r_itif));
+
+  //debug writing raster
+  /*std::cerr << " writing raster" << std::endl;
+  TIFF *debug = TIFFOpen("debug.tif", "w8");
+  tiffcp(r_itif, debug, opt::verbose);
+  rimage.write(debug);
+  TIFFClose(debug);
+  return 0;
+  */
   
   // Open the output TIFF file
   TIFF* otif = TIFFOpen(opt::outfile.c_str(), "w8");
@@ -151,6 +162,7 @@ static int gray2rgb() {
   TVERB("...reading green");
   TIFF *g_itif = TIFFOpen(opt::infile.c_str(), "rm");
   TiffImage gimage;
+  gimage.setverbose(opt::verbose);  
   if (!TIFFReadDirectory(g_itif)) {
     fprintf(stderr, "Unable to read second channel\n");
   }
@@ -169,7 +181,8 @@ static int gray2rgb() {
   if (!TIFFReadDirectory(b_itif)) { // advance to 3
     fprintf(stderr, "Unable to read third channel\n");
   }
-  bimage = TiffImage(b_itif); 
+  bimage = TiffImage(b_itif);
+  bimage.setverbose(opt::verbose);
   bimage.ReadToRaster(b_itif);
   
   TVERB("B mean: " << bimage.mean(b_itif));
