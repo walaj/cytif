@@ -81,8 +81,12 @@ class TiffImage {
   // print the mean number of pixels to std, for each channel
   int light_mean(TIFF* tif) const;
 
+  // set the verbose output flag
   void setverbose(bool v) { verbose = v; }
 
+  // return the number of directories
+  // note that this resets the current directory to 0
+  int DirCount(TIFF* in) const;
   
  private:
 

@@ -34,6 +34,15 @@ class CellHeader {
   int getIndex(const std::string& token) const { return header_map.at(token); }
   size_t getX() const { return m_x; }
   size_t getY() const { return m_y; }  
+
+  friend std::ostream& operator<<(std::ostream& out, const CellHeader& obj) {
+    for (const auto& [key, value] : obj.header_map) {
+      out << key << ":" << value << " ";
+    }
+    return out;
+  }
+  
+  
   
  private:
   std::map<std::string, int> header_map;
@@ -76,8 +85,13 @@ class Cell {
   int getCellId() const { return cell_id; }
   int getX() const { return x; }
   int getY() const { return y; }
+
+  friend std::ostream& operator<<(std::ostream& out, const Cell& obj) {
+    out << "cell_id: " << obj.cell_id << ", x: " << obj.x << ", y: " << obj.y;
+    return out;
+  }  
   
- private:
+private:
   int cell_id;
   int x;
   int y;

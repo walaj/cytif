@@ -141,12 +141,16 @@ static int csvproc() {
     return 1;
   }
 
+  std::cerr << " HEADER " << std::endl;
+  std::cerr << header << std::endl;
+
   // loop the table and build the CellTable
   while (std::getline(file, line)) {
     //std::vector<std::string>  row;
     //boost::tokenizer<boost::escaped_list_separator<char>>  tokens(line);
 
     Cell cel(line);
+    std::cerr << cel << std::endl;
     table.addCell(cel);
     
   }

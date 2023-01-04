@@ -663,6 +663,7 @@ int TiffImage::MergeGrayToRGB(TIFF* r, TIFF* g, TIFF* b, TIFF* o) {
 	if (TIFFWriteTile(o, o_tile, x, y, 0, 0) < 0) { 
 	  fprintf(stderr, "Error writing tile at (%d, %d)\n", x, y);
 	  return 1;
+	  
 	}
 	
       } // end x loop
@@ -743,14 +744,23 @@ int TiffImage::MergeGrayToRGB(TIFF* r, TIFF* g, TIFF* b, TIFF* o) {
   return 0;
 }
 
-int TiffImage::MergeGrayToRGB(TIFF* in, TIFF* out) const {
-
+int TiffImage::DirCount(TIFF* in) const {
+  
   // make sure dircount is right
   int dircount = 0;
   do {
     dircount++;
   } while (TIFFReadDirectory(in));
 
+  TIFFSetDirectory(in, 0);
+  return dircount;
+  
+}
+
+int TiffImage::MergeGrayToRGB(TIFF* in, TIFF* out) const {
+
+  int dircount = DirCount(in);
+  
   if (dircount < 3) {
     std::cerr << "Error: Need at least three image IFDs" << std::endl;
     return 1;
