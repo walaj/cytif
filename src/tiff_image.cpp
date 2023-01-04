@@ -175,7 +175,7 @@ int TiffImage::write(TIFF* otif) const {
   if (TIFFIsTiled(otif)) {
     return(__tiled_write(otif));
   } else {
-    std::cerr << "TIFF NOT TILED " << std::endl;
+    return(__lined_write(otif));
   }
 
   return 0;
@@ -315,7 +315,34 @@ int TiffImage::light_mean(TIFF* tif) const {
     return 0;
     
   }
-  
+
+int TiffImage::__lined_write(TIFF* otif) const {
+
+  uint64_t ls = TIFFScanlineSize(otif);
+  assert(ls);
+
+  // this should take into account the mode, since TIFFScanlineSize should
+  // factor in samples per pixel. But we'll always work with it as a uint8_t array
+  // for ease
+  //uint8_t* buf = (uint8_t*)_TIFFmalloc(TIFFScanlineSize(otif));
+
+  //uint64_t m_pix = 0;
+  for (uint64_t y = 0; y < m_height; y++) {
+
+    // copy directly from m_data since the order of writing
+    // in a scanline file is same as order that m_data is stored
+    // this should be really clean because it doesn't make me guess the
+    // number of bytes per pixel to deal with
+    if (TIFFWriteScanline(otif, static_cast<uint8_t*>(m_data) + y * ls, y, 0) < 0) {
+      fprintf(stderr, "Error writing line row %ul\n", y);
+      return 1;
+    }
+    
+    //          memcpy(buf, m_data + y * ls, ls);
+  }
+  return 0;
+}
+
 int TiffImage::__tiled_write(TIFF* otif) const {
 
   assert(TIFFIsTiled(otif));
@@ -943,5 +970,37 @@ int TiffImage::__check_tif(TIFF* tif) const {
     fprintf(stderr, "Error: TIFF is NULL\n");
     return 1;
   }
+  return 0;
+}
+
+int TiffImage::DrawCircles(TIFF* out, const CellTable& table) {
+  
+  __check_tif(out);
+
+  // allocate the raster memory
+  __alloc(out);
+
+  int radius = 10;
+  
+  std::vector<std::pair<float,float>> circle_shape = get_circle_points(radius);
+
+  uint64_t m_cell = 0;
+  for (const auto& c : table) {
+    if (m_cell % 100000 == 0 && verbose) {
+      std::cerr << "...drawing circle for cell " << AddCommas<uint64_t>(m_cell) <<std::endl;
+    }
+    m_cell++;
+    
+    for (const auto& s: circle_shape) {
+      uint64_t xpos = std::round(c.x + s.first);
+      uint64_t ypos = std::round(c.y + s.second);
+      //      std::cerr << " c.x " << c.x << " s.first " << s.first << " c.y " << c.y <<
+      //	" s.second " << s.second << " xpos " << xpos << " ypos " << ypos << std::endl;
+      if (ypos < m_height && xpos < m_width) {
+	static_cast<uint8_t*>(m_data)[ypos * m_width + xpos] = static_cast<uint8_t>(255);
+      }
+    }
+  }
+  
   return 0;
 }

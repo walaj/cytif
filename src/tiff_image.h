@@ -9,6 +9,7 @@
 
 #include "tiff_cp.h"
 #include "tiff_utils.h"
+#include "cell.h"
 
 #define PIXEL_GRAY 999
 #define PIXEL_RED 0
@@ -87,6 +88,9 @@ class TiffImage {
   // return the number of directories
   // note that this resets the current directory to 0
   int DirCount(TIFF* in) const;
+
+  // draw circles
+  int DrawCircles(TIFF* out, const CellTable& table);
   
  private:
 
@@ -126,6 +130,9 @@ class TiffImage {
   // write the raster to a tiled image
   int __tiled_write(TIFF* otif) const;
 
+  // write the raster to a lined image
+  int __lined_write(TIFF* otif) const;
+  
   // has the image had its raster stored to memory
   bool __is_rasterized() const;
 

@@ -4,36 +4,18 @@
 #include <string>
 #include <map>
 #include <vector>
-#include <boost/tokenizer.hpp>
+#include <iostream>
 
 class CellHeader {
   
  public:
-  CellHeader(const std::string& input)
-    {
-      
-      // Tokenize the input string
-      boost::tokenizer<boost::escaped_list_separator<char>> tokens(input);
-      
-      // Store each token in the map
-      int i = 0;
-      for (const std::string& token : tokens) {
-	header_map[token] = i;
-	i++;
-      }
-
-      // x centroid and y centroid positions
-      m_x = header_map.at("X_centroid");
-      m_y = header_map.at("Y_centroid");      
-      
-    }
+  
+  CellHeader(const std::string& input);
   
   // null constructor
   CellHeader() {}
   
   int getIndex(const std::string& token) const { return header_map.at(token); }
-  size_t getX() const { return m_x; }
-  size_t getY() const { return m_y; }  
 
   friend std::ostream& operator<<(std::ostream& out, const CellHeader& obj) {
     for (const auto& [key, value] : obj.header_map) {
@@ -41,14 +23,16 @@ class CellHeader {
     }
     return out;
   }
+
+  int KeyValue(const std::string& key) const {
+    return (header_map.at(key));
+  }
   
-  
-  
+  uint64_t x = static_cast<uint64_t>(-1);
+  uint64_t y = static_cast<uint64_t>(-1);
+
  private:
   std::map<std::string, int> header_map;
-
-  size_t m_x=0;
-  size_t m_y=0;  
   
 };
 
@@ -57,46 +41,36 @@ class Cell {
 
  public:
 
-  // constructor froma string
-  Cell(const std::string& input) {
-    
-    // Tokenize the input string
-    boost::tokenizer<boost::escaped_list_separator<char>> tokens(input);
-
-    // Parse the cell id, x, and y positions
-    int i = 0;
-    for (const std::string& token : tokens) {
-      switch (i) {
-      case 0:
-	cell_id = std::stoi(token);
-	break;
-      case 1:
-	x = std::stoi(token);
-	break;
-      case 2:
-	y = std::stoi(token);
-	break;
-      }
-      i++;
-    }
-
-  }
+  // constructor from a string
+  Cell(const std::string& input, const CellHeader& h); 
 
   int getCellId() const { return cell_id; }
   int getX() const { return x; }
   int getY() const { return y; }
-
-  friend std::ostream& operator<<(std::ostream& out, const Cell& obj) {
+  float getVal(const std::string& key) const {
+    return (m_elems.at(m_header.KeyValue(key)));
+  }
+  
+  /*  friend std::ostream& operator<<(std::ostream& out, const Cell& obj) {
     out << "cell_id: " << obj.cell_id << ", x: " << obj.x << ", y: " << obj.y;
     return out;
+    } */ 
+
+  friend std::ostream& operator<<(std::ostream& out, const Cell& obj) {
+    for (size_t i = 0; i < obj.m_elems.size(); i++)
+      out << obj.m_elems.at(i) << ",";
+    return out;
+
   }  
+
+  int cell_id = 0;
+  float x = 0;
+  float y = 0;
   
 private:
-  int cell_id;
-  int x;
-  int y;
-
   CellHeader m_header;
+
+  std::vector<float> m_elems;
   
 };
 
@@ -107,8 +81,17 @@ public:
   
   std::vector<Cell> getCells() const { return cells; }
   
+  using const_iterator = std::vector<Cell>::const_iterator;
+  const_iterator begin() const { return cells.begin(); }
+  const_iterator end() const { return cells.end(); }
+
+  size_t size() const { return cells.size(); }
+  
 private:
   std::vector<Cell> cells;
+
+  
+  
 };
 
 #endif

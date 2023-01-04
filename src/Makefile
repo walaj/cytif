@@ -1,9 +1,9 @@
 CC = g++
-CFLAGS = -g -std=c++11 `pkg-config --cflags vips-cpp libtiff-4` -I/home/jaw34/software/boost-1.81.0/include
+CFLAGS = -g -std=c++17 `pkg-config --cflags vips-cpp libtiff-4` -I/home/jaw34/software/boost-1.81.0/include -I/home/jaw34/git/voronoi/src
 LDFLAGS = `pkg-config --libs vips-cpp libtiff-4`
 
 # Specify the source files
-SRCS = tiffo.cpp tiff_header.cpp tiff_image.cpp tiff_cp.cpp
+SRCS = tiffo.cpp tiff_header.cpp tiff_image.cpp tiff_cp.cpp cell.cpp 
 
 # Specify the object files
 OBJS = $(SRCS:.cpp=.o)

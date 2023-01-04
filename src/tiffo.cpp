@@ -15,9 +15,27 @@
 
 #include "cell.h"
 
+/*
+#define myascii(c) (((c) & ~0x7f) == 0)
+
+// I wrapped it in a library because it spams too many warnings
+extern int wrap_stbi_write_png(char const *filename, int w, int h, int comp, const void *data, int stride_in_bytes);
+
+#define JC_VORONOI_IMPLEMENTATION
+// If you wish to use doubles
+//#define JCV_REAL_TYPE double
+//#define JCV_FABS fabs
+//#define JCV_ATAN2 atan2
+#include "jc_voronoi.h"
+
+#define JC_VORONOI_CLIP_IMPLEMENTATION
+#include "jc_voronoi_clip.h"
+*/
+
 namespace opt {
   static bool verbose = false;
   static std::string infile;
+  static std::string quantfile;
   static std::string outfile;
   static std::string module;
 
@@ -33,12 +51,15 @@ namespace opt {
     std::cerr << msg << std::endl; \
   }
 
-static const char* shortopts = "hvr:g:b:";
+#define JC_VORONOI_IMPLEMENTATION
+
+static const char* shortopts = "hvr:g:b:q:";
 static const struct option longopts[] = {
   { "verbose",                    no_argument, NULL, 'v' },
   { "red",                        required_argument, NULL, 'r' },
-  { "green",                        required_argument, NULL, 'g' },
-  { "blue",                        required_argument, NULL, 'b' },    
+  { "green",                      required_argument, NULL, 'g' },
+  { "blue",                       required_argument, NULL, 'b' },
+  { "quant-file",                 required_argument, NULL, 'q' },      
   { NULL, 0, NULL, 0 }
 };
 
@@ -53,6 +74,7 @@ static const char *RUN_USAGE_MESSAGE =
 static int gray2rgb();
 static int findmean();
 static int csvproc();
+static int debugfunc();
 static void parseRunOptions(int argc, char** argv);
 
 /*
@@ -104,6 +126,8 @@ int main(int argc, char **argv) {
     return(findmean());
   else if (opt::module == "csv") {
     return(csvproc());
+  } else if (opt::module == "debug") {
+    return(debugfunc());
   }
 
   return 1;
@@ -127,7 +151,7 @@ int findmean() {
 
 static int csvproc() {
 
-  std::ifstream       file(opt::infile);
+  std::ifstream       file(opt::quantfile);
   std::string         line;
 
   CellTable table;
@@ -140,21 +164,88 @@ static int csvproc() {
     std::cerr << "Error reading CSV header from " << opt::infile;
     return 1;
   }
-
-  std::cerr << " HEADER " << std::endl;
-  std::cerr << header << std::endl;
-
+  
+  size_t cellid = 0;
+  
   // loop the table and build the CellTable
   while (std::getline(file, line)) {
-    //std::vector<std::string>  row;
-    //boost::tokenizer<boost::escaped_list_separator<char>>  tokens(line);
 
-    Cell cel(line);
-    std::cerr << cel << std::endl;
+    ++cellid;
+    Cell cel(line, header);
     table.addCell(cel);
-    
+
+    if (cellid % 100000 == 0 && opt::verbose)
+      std::cerr << "...reading cell " << AddCommas(static_cast<uint32_t>(cellid)) << std::endl;
   }
 
+  // open the input tiff
+  TIFF *itif = TIFFOpen(opt::infile.c_str(), "rm");
+  
+  // create a raw tiff to draw circles onto
+  TIFF* otif = TIFFOpen(opt::outfile.c_str(), "w8");
+  if (otif == NULL) {
+    fprintf(stderr, "Error opening %s for writing\n", opt::outfile);
+    return 1;
+  }
+
+  // copy all of the tags from in to out
+  tiffcp(itif, otif, false);
+  
+  TIFFSetField(otif, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_MINISBLACK);
+  TIFFSetField(otif, TIFFTAG_SAMPLESPERPIXEL, 1);
+  TIFFSetField(otif, TIFFTAG_BITSPERSAMPLE, 8);  
+
+  TiffImage circles(otif);
+
+  circles.setverbose(opt::verbose);
+
+  circles.DrawCircles(otif, table);
+
+  std::cerr << " writing " << std::endl;
+  circles.write(otif);
+  TIFFClose(otif);
+  
+  /*
+  // VORONOI
+  int NPOINT = 10;
+  int i;
+  jcv_rect bounding_box = { { 0.0f, 0.0f }, { 1.0f, 1.0f } };
+  jcv_diagram diagram;
+  jcv_point points[NPOINT];
+  const jcv_site* sites;
+  jcv_graphedge* graph_edge;
+  
+  memset(&diagram, 0, sizeof(jcv_diagram));
+
+  srand(0);
+  for (i=0; i<NPOINT; i++) {
+    points[i].x = ((float)rand()/(1.0f + (float)RAND_MAX));
+    points[i].y = ((float)rand()/(1.0f + (float)RAND_MAX));
+  }
+
+  printf("# Seed sites\n");
+  for (i=0; i<NPOINT; i++) {
+    printf("%f %f\n", (double)points[i].x, (double)points[i].y);
+  }
+
+  jcv_diagram_generate(NPOINT, (const jcv_point *)points, &bounding_box, (const jcv_clipper*)0, &diagram);
+
+  printf("# Edges\n");
+  sites = jcv_diagram_get_sites(&diagram);
+  for (i=0; i<diagram.numsites; i++) {
+
+    graph_edge = sites[i].edges;
+    while (graph_edge) {
+      // This approach will potentially print shared edges twice
+      printf("%f %f\n", (double)graph_edge->pos[0].x, (double)graph_edge->pos[0].y);
+      printf("%f %f\n", (double)graph_edge->pos[1].x, (double)graph_edge->pos[1].y);
+      graph_edge = graph_edge->next;
+    }
+  }
+
+  jcv_diagram_free(&diagram);
+  */
+  
   return 0;
 }
 
@@ -255,7 +346,8 @@ static void parseRunOptions(int argc, char** argv) {
     case 'v' : opt::verbose = true; break;
     case 'r' : arg >> opt::redfile; break;
     case 'g' : arg >> opt::greenfile; break;
-    case 'b' : arg >> opt::bluefile; break;      
+    case 'b' : arg >> opt::bluefile; break;
+    case 'q' : arg >> opt::quantfile; break;            
     case 'h' : help = true; break;
     default: die = true;
     }
@@ -273,7 +365,7 @@ static void parseRunOptions(int argc, char** argv) {
     optind++;
   }
   
-  if (! (opt::module == "gray2rgb" || opt::module == "mean" || opt::module == "csv") ) {
+  if (! (opt::module == "gray2rgb" || opt::module == "mean" || opt::module == "csv" || opt::module == "debug") ) {
     std::cerr << "Module " << opt::module << " not implemented" << std::endl;
     die = true;
   }
@@ -288,3 +380,34 @@ static void parseRunOptions(int argc, char** argv) {
     }
 }
 
+static int debugfunc() {
+
+
+  std::cerr << " opening file " << opt::infile << std::endl;
+  TIFF* in = TIFFOpen(opt::infile.c_str(), "rm");
+
+  std::cerr << " making output file " << opt::outfile << std::endl;
+  TIFF* out = TIFFOpen(opt::outfile.c_str(), "w8");
+
+  std::cerr << " making TiffImage and reading to raster" << std::endl;
+  TiffImage tin(in);
+  tin.setverbose(true);
+  tin.ReadToRaster(in);
+
+  std::cerr << " mean of input " << tin.mean(in) << std::endl;
+
+  std::cerr << " copying tags to output" << std::endl;
+  tiffcp(in, out, false);
+  
+  std::cerr << " writing raster" << std::endl;
+  tin.write(out);
+
+  std::cerr << "closing" << std::endl;
+  TIFFClose(in);
+  TIFFClose(out);
+
+  return 0;
+    
+  
+  
+}
