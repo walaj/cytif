@@ -13,11 +13,17 @@
 #include "tiff_image.h"
 #include "tiff_cp.h"
 
+#include "cell.h"
+
 namespace opt {
   static bool verbose = false;
   static std::string infile;
   static std::string outfile;
   static std::string module;
+
+  static std::string redfile;
+  static std::string greenfile;
+  static std::string bluefile;
 }
 
 #define DEBUG(x) std::cerr << #x << " = " << (x) << std::endl
@@ -27,9 +33,12 @@ namespace opt {
     std::cerr << msg << std::endl; \
   }
 
-static const char* shortopts = "v";
+static const char* shortopts = "hvr:g:b:";
 static const struct option longopts[] = {
   { "verbose",                    no_argument, NULL, 'v' },
+  { "red",                        required_argument, NULL, 'r' },
+  { "green",                        required_argument, NULL, 'g' },
+  { "blue",                        required_argument, NULL, 'b' },    
   { NULL, 0, NULL, 0 }
 };
 
@@ -38,10 +47,12 @@ static const char *RUN_USAGE_MESSAGE =
 "Modules:\n"
 "  gray2rgb - Convert a 3-channel gray TIFF to a single RGB\n"
 "  mean - Give the mean pixel for each channel\n"
+"  csv - <placeholder for csv processing>\n"
   "\n";
   
 static int gray2rgb();
 static int findmean();
+static int csvproc();
 static void parseRunOptions(int argc, char** argv);
 
 /*
@@ -91,7 +102,8 @@ int main(int argc, char **argv) {
     return(gray2rgb());
   else if (opt::module == "mean")
     return(findmean());
-  else {
+  else if (opt::module == "csv") {
+    return(csvproc());
   }
 
   return 1;
@@ -104,9 +116,7 @@ int findmean() {
   // a single pass just causes memory overruns from the C memmap func
   TIFF* tif = tiffload(opt::infile.c_str(), "rm");
 
-  std::cerr << "HERE " << std::endl;
   TiffImage im(tif);
-  std::cerr << "HERE2 " << std::endl;  
   im.setverbose(opt::verbose);
 
   // this routine will handle printing output to stdout
@@ -115,92 +125,112 @@ int findmean() {
   return 0;
 }
 
-static int gray2rgb() {
+static int csvproc() {
 
-  TIFF* itif = tiffload(opt::infile.c_str(), "rm");
+  std::ifstream       file(opt::infile);
+  std::string         line;
+
+  CellTable table;
+  
+  // parse the header from the quant table
+  CellHeader header;
+  if (std::getline(file, line)) {
+    header = CellHeader(line);
+  } else {
+    std::cerr << "Error reading CSV header from " << opt::infile;
+    return 1;
+  }
+
+  // loop the table and build the CellTable
+  while (std::getline(file, line)) {
+    //std::vector<std::string>  row;
+    //boost::tokenizer<boost::escaped_list_separator<char>>  tokens(line);
+
+    Cell cel(line);
+    table.addCell(cel);
+    
+  }
+
+  return 0;
+}
+
+static int gray2rgb() {
+  
+  // if we have three separate RGB file
+  if (!opt::redfile.empty()) {
+    if (opt::greenfile.empty() || opt::bluefile.empty()) {
+      std::cerr << "Error: Must specify red, green and blue files" << std::endl;
+      return 1;
+    }
+
+   // the way its parsed, the first non-labeled file is in.
+    // so we just change it to the outfile since the infiles are
+    // set by the -r, -g, -b flags
+    opt::outfile = opt::infile; 
+    
+  } else {
+    opt::redfile = opt::infile; // in this case, red file is also red,green,blue
+  }
 
   // messing around with the tiff header
-  TiffHeader thead(opt::infile);
+  //TiffHeader thead(opt::infile);
   //thead.view_stdout();
-  
-  // read in the TIFF as a red channel
-  TVERB("...reading red");
-  TIFF *r_itif = TIFFOpen(opt::infile.c_str(), "rm");
+
+  // open either the red channel or the 3-IFD file
+  TIFF *r_itif = TIFFOpen(opt::redfile.c_str(), "rm");
   TiffImage rimage(r_itif);  
   rimage.setverbose(opt::verbose);
-  rimage.ReadToRaster(r_itif);
 
-  TVERB("R mean: " << rimage.mean(r_itif));
-
-  //debug writing raster
-  /*std::cerr << " writing raster" << std::endl;
-  TIFF *debug = TIFFOpen("debug.tif", "w8");
-  tiffcp(r_itif, debug, opt::verbose);
-  rimage.write(debug);
-  TIFFClose(debug);
-  return 0;
-  */
-  
   // Open the output TIFF file
   TIFF* otif = TIFFOpen(opt::outfile.c_str(), "w8");
   if (otif == NULL) {
     fprintf(stderr, "Error opening %s for writing\n", opt::outfile);
     return 1;
   }
-
-  // copy all of the tags 
+  
+  // copy all of the tags from in to out
   tiffcp(r_itif, otif, false);
-
+  
   // setup the RGB output file
   TiffImage rgb(r_itif);
-
+  rgb.setverbose(opt::verbose);
+  
   TIFFSetField(otif, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_RGB);
   TIFFSetField(otif, TIFFTAG_SAMPLESPERPIXEL, 3);
 
-  // close the red channel, we don't need it anymore
-  TIFFClose(r_itif);
-  
-  // read in the TIFF as a green channel
-  TVERB("...reading green");
-  TIFF *g_itif = TIFFOpen(opt::infile.c_str(), "rm");
-  TiffImage gimage;
-  gimage.setverbose(opt::verbose);  
-  if (!TIFFReadDirectory(g_itif)) {
-    fprintf(stderr, "Unable to read second channel\n");
-  }
-  gimage = TiffImage(g_itif);
-  gimage.ReadToRaster(g_itif);
+  // if this is a single 3 IFD file
+  if (opt::greenfile.empty()) {
 
-  TVERB("G mean: " << gimage.mean(g_itif));
-  
-  TIFFClose(g_itif);
-  
-  // read in the TIFF as a blue channel
-  std::cerr << "...reading blue" << std::endl;
-  TIFF *b_itif = TIFFOpen(opt::infile.c_str(), "rm");
-  TiffImage bimage;
-  TIFFReadDirectory(b_itif); // advance to 2
-  if (!TIFFReadDirectory(b_itif)) { // advance to 3
-    fprintf(stderr, "Unable to read third channel\n");
+    // new way
+    rgb.MergeGrayToRGB(r_itif, otif);
+    TIFFClose(r_itif);
   }
-  bimage = TiffImage(b_itif);
-  bimage.setverbose(opt::verbose);
-  bimage.ReadToRaster(b_itif);
-  
-  TVERB("B mean: " << bimage.mean(b_itif));
-  
-  TVERB("...copying to the RGB raster");
-  rgb.MergeGrayToRGB(rimage, gimage, bimage);
-  
-  // write it
-  TVERB("...writing output to file: " << TIFFFileName(otif));
-  rgb.write(otif);
+
+  // we have three separate files
+  else {
+    
+    // read in the TIFF as a green channel
+    TIFF *g_itif = TIFFOpen(opt::greenfile.c_str(), "rm");
+    TiffImage gimage;
+    gimage.setverbose(opt::verbose);
+    gimage = TiffImage(g_itif);
+    
+    // read in the TIFF as a blue channel
+    TIFF *b_itif = TIFFOpen(opt::bluefile.c_str(), "rm");
+    TiffImage bimage;
+    bimage = TiffImage(b_itif);
+    bimage.setverbose(opt::verbose);
+    
+    rgb.MergeGrayToRGB(r_itif, g_itif, b_itif, otif);
+  }
   
   // close the image for writing
   TIFFClose(otif);  
 
   return 0;
 }
+
+
 
 // parse the command line options
 static void parseRunOptions(int argc, char** argv) {
@@ -219,6 +249,9 @@ static void parseRunOptions(int argc, char** argv) {
     std::istringstream arg(optarg != NULL ? optarg : "");
     switch (c) {
     case 'v' : opt::verbose = true; break;
+    case 'r' : arg >> opt::redfile; break;
+    case 'g' : arg >> opt::greenfile; break;
+    case 'b' : arg >> opt::bluefile; break;      
     case 'h' : help = true; break;
     default: die = true;
     }
@@ -236,7 +269,7 @@ static void parseRunOptions(int argc, char** argv) {
     optind++;
   }
   
-  if (! (opt::module == "gray2rgb" || opt::module == "mean") ) {
+  if (! (opt::module == "gray2rgb" || opt::module == "mean" || opt::module == "csv") ) {
     std::cerr << "Module " << opt::module << " not implemented" << std::endl;
     die = true;
   }

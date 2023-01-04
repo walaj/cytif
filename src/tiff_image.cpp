@@ -2,17 +2,9 @@
 #include <cassert>
 #include <iostream>
 
-
 #include <string.h>
 #define DP(x) fprintf(stderr,"DEBUG %d\n", x)
 #define DEBUG(var) printf(#var " = %d\n", var)
-
-// find the integer number of elements of size y are needed to hold x bytes
-// e.g. equivalent to ceiling(x/y)
-#define TIFFhowmany_32(x, y) (((uint32)x < (0xffffffff - (uint32)(y-1))) ? \
-			      ((((uint32)(x))+(((uint32)(y))-1))/((uint32)(y))) : \
-			      0U)
-
 
 TiffImage::TiffImage(TIFF* tif) {
 
@@ -453,8 +445,6 @@ int TiffImage::ReadToRaster(TIFF* tif) {
   // just in time allocation of memory
   __alloc(tif);
 
-  std::cerr << " tiled " << TIFFIsTiled(tif) << " width " << m_tilewidth << std::endl;
-  
   // read in tiled image
   if (TIFFIsTiled(tif) && m_tilewidth) {
     assert(m_tileheight);
@@ -486,35 +476,34 @@ int TiffImage::__lined_read(TIFF* i_tif) {
     
     // Copy the tile data into the image buffer
     for (uint64_t x = 0; x < ls; x++) {
-	if (x < m_width && y < m_height) {
-	    
-	    ++m_pix;
-	    if (verbose && m_pix % static_cast<uint64_t>(1e9) == 0)
-	      std::cerr << "...working on pixel: " <<
-		AddCommas(static_cast<uint64_t>(m_pix)) << std::endl;
-
-	    uint64_t ind = y * m_width + x;
-	    
-	    assert(static_cast<uint8_t*>(m_data)[ind] == 0);
-	    switch (mode) {
-	  case 1:
-	    static_cast<uint8_t*>(m_data)[ind] =
-	      static_cast<uint8_t*>(buf)[x];
-	    break;
-	  case 4:
-	    static_cast<uint32_t*>(m_data)[ind] =
-	     static_cast<uint32_t*>(buf)[x];
-	    break;
-	  }
+      if (x < m_width && y < m_height) {
+	
+	++m_pix;
+	if (verbose && m_pix % static_cast<uint64_t>(1e9) == 0)
+	  std::cerr << "...working on pixel: " <<
+	    AddCommas(static_cast<uint64_t>(m_pix)) << std::endl;
+	
+	uint64_t ind = y * m_width + x;
+	
+	assert(static_cast<uint8_t*>(m_data)[ind] == 0);
+	switch (mode) {
+	case 1:
+	  static_cast<uint8_t*>(m_data)[ind] =
+	    static_cast<uint8_t*>(buf)[x];
+	  break;
+	case 4:
+	  static_cast<uint32_t*>(m_data)[ind] =
+	    static_cast<uint32_t*>(buf)[x];
+	  break;
 	}
+      }
     } // x loop
   }
-
+  
   _TIFFfree(buf);
-
+  
   return 0;
 }
-
 
 
 
@@ -524,7 +513,6 @@ int TiffImage::__tiled_read(TIFF* i_tif) {
   
   // allocate memory for a single tile
   void* tile = (void*)calloc(TIFFTileSize(i_tif), sizeof(uint8_t));
-  //uint8_t* tile = (uint8_t*)_TIFFmalloc(TIFFTileSize(i_tif));
   
   uint64_t tile_size = static_cast<uint64_t>(m_tileheight) * m_tilewidth;						 
 
@@ -550,17 +538,6 @@ int TiffImage::__tiled_read(TIFF* i_tif) {
 	    if (verbose && m_pix % static_cast<uint64_t>(1e9) == 0)
 	      std::cerr << "...working on pixel: " <<
 		AddCommas(static_cast<uint64_t>(m_pix)) << std::endl;
-	    
-	    //debug
-	    /*	    if (satatic_cast<uint8_t*>(m_data)[ind] != 0)
-	      std::cerr << " y " << y << " x " << x << " Tile " <<
-		TIFFComputeTile(i_tif, x, y, 0, 0) << " ty " << ty << " tx " << tx <<
-		" ind " << ind << " tile[" << ty*m_tilewidth + tx << "] = " << 
-		(unsigned int)static_cast<uint8_t*>(tile)[ty * m_tilewidth + tx] <<
-		" m_data[" << ind << "]=" <<
-		(unsigned int)static_cast<uint8_t*>(m_data)[ind] <<
-		std::endl;
-	    */
 	    
 	    assert(static_cast<uint8_t*>(m_data)[ind] == 0);
 	    switch (mode) {
@@ -614,43 +591,322 @@ bool TiffImage::__is_rasterized() const {
   return true;
 }
 
-int TiffImage::MergeGrayToRGB(const TiffImage &r, const TiffImage &g, const TiffImage &b) {
+void TiffImage::__gray8assert(TIFF* in) const {
 
-  // will need a bunch of error checking here
-  clear_raster();
-
-  assert(r.numPixels() == g.numPixels());
-  assert(g.numPixels() == b.numPixels());
-
-  m_pixels = r.numPixels();
+  uint16_t bps, photo;
+  TIFFGetField(in, TIFFTAG_BITSPERSAMPLE, &bps);
+  assert(bps == 8);
+  TIFFGetField(in, TIFFTAG_PHOTOMETRIC, &photo);
+  assert(photo == PHOTOMETRIC_MINISBLACK);
   
-  // allocate memory for a new TIFF
-  m_data = _TIFFmalloc(m_pixels * 3 * sizeof(uint8_t));
+}
+
+int TiffImage::MergeGrayToRGB(TIFF* r, TIFF* g, TIFF* b, TIFF* o) {
+
+  // assert that they are 8 bit images
+  __gray8assert(r);
+  __gray8assert(g);
+  __gray8assert(b);  
+
+  // for tiled images
+  if (TIFFIsTiled(r)) {
+    
+    assert(TIFFTileSize(r) == TIFFTileSize(g));
+    assert(TIFFTileSize(r) == TIFFTileSize(b));
+    assert(TIFFTileSize(r) == TIFFTileSize(o));    
+    
+    // allocate memory for a single tile
+    uint8_t* r_tile = (uint8_t*)calloc(TIFFTileSize(r), sizeof(uint8_t));
+    uint8_t* g_tile = (uint8_t*)calloc(TIFFTileSize(g), sizeof(uint8_t));
+    uint8_t* b_tile = (uint8_t*)calloc(TIFFTileSize(b), sizeof(uint8_t));
+    void*    o_tile = (void*)calloc(TIFFTileSize(r) * 3, sizeof(uint8_t));  
+    
+    // loop through the tiles
+    uint64_t x, y;
+    uint64_t m_pix = 0;
+    for (y = 0; y < m_height; y += m_tileheight) {
+      for (x = 0; x < m_width; x += m_tilewidth) {
+	
+	// Read the red tile
+	if (TIFFReadTile(r, r_tile, x, y, 0, 0) < 0) {
+	  fprintf(stderr, "Error reading red tile at (%d, %d)\n", x, y);
+	  return 1;
+	}
+	
+	// Read the green tile
+	if (TIFFReadTile(g, g_tile, x, y, 0, 0) < 0) {
+	  fprintf(stderr, "Error reading green tile at (%d, %d)\n", x, y);
+	  return 1;
+	}
+	
+	// Read the blue tile
+	if (TIFFReadTile(b, b_tile, x, y, 0, 0) < 0) {
+	  fprintf(stderr, "Error reading blue tile at (%d, %d)\n", x, y);
+	  return 1;
+	}
+	
+	// copy the tile
+	for (size_t i = 0; i < TIFFTileSize(r); ++i) {
+	  
+	  ++m_pix;
+	  if (verbose && m_pix % static_cast<uint64_t>(1e9) == 0)
+	    std::cerr << "...working on pixel: " <<
+	      AddCommas(static_cast<uint64_t>(m_pix)) << std::endl;
+	  
+	  static_cast<uint8_t*>(o_tile)[i*3    ] = r_tile[i];
+	  static_cast<uint8_t*>(o_tile)[i*3 + 1] = g_tile[i];
+	  static_cast<uint8_t*>(o_tile)[i*3 + 2] = b_tile[i];
+	}
+	
+	// Write the tile to the TIFF file
+	// this function will automatically calculate memory size from TIFF tags
+	if (TIFFWriteTile(o, o_tile, x, y, 0, 0) < 0) { 
+	  fprintf(stderr, "Error writing tile at (%d, %d)\n", x, y);
+	  return 1;
+	}
+	
+      } // end x loop
+    } // end y loop
+    
+    free(o_tile);
+    free(r_tile);
+    free(g_tile);
+    free(b_tile);
+
+  }
+
+  // lined image
+  else {
+
+    uint64_t ls = TIFFScanlineSize(r);
+
+    assert(TIFFScanlineSize(r) == TIFFScanlineSize(g));
+    assert(TIFFScanlineSize(r) == TIFFScanlineSize(b));    
+
+    // allocate memory for a single line
+    uint8_t* rbuf = (uint8_t*)_TIFFmalloc(TIFFScanlineSize(r));
+    uint8_t* gbuf = (uint8_t*)_TIFFmalloc(TIFFScanlineSize(g));
+    uint8_t* bbuf = (uint8_t*)_TIFFmalloc(TIFFScanlineSize(b));
+    uint8_t* obuf = (uint8_t*)_TIFFmalloc(TIFFScanlineSize(r) * 3);
+
+    if (verbose)
+      std::cerr << "--SCANLINE SIZE " << TIFFScanlineSize(r) << std::endl;
+    
+    uint64_t m_pix = 0;
+    for (uint64_t y = 0; y < m_height; y++) {
+      
+      // Read the red line
+      if (TIFFReadScanline(r, rbuf, y) < 0) {
+	fprintf(stderr, "Error reading red line at row %ul\n", y);
+	return 1;
+      }
+
+      // Read the green line
+      if (TIFFReadScanline(g, gbuf, y) < 0) {
+	fprintf(stderr, "Error reading green line at row %ul\n", y);
+	return 1;
+      }
+
+      // Read the blue line
+      if (TIFFReadScanline(b, bbuf, y) < 0) {
+	fprintf(stderr, "Error reading blue line at row %ul\n", y);
+	return 1;
+      }
+
+      // copy the line
+      for (size_t i = 0; i < TIFFScanlineSize(r); ++i) {
+	
+	++m_pix;
+	if (verbose && m_pix % static_cast<uint64_t>(1e9) == 0)
+	  std::cerr << "...working on pixel: " <<
+	    AddCommas(static_cast<uint64_t>(m_pix)) << std::endl;
+	
+	static_cast<uint8_t*>(obuf)[i*3  ] = rbuf[i];
+	static_cast<uint8_t*>(obuf)[i*3+1] = gbuf[i];
+	static_cast<uint8_t*>(obuf)[i*3+2] = bbuf[i];
+      }
+      
+      // Write the tile to the TIFF file
+      // this function will automatically calculate memory size from TIFF tags
+      if (TIFFWriteScanline(o, obuf, y) < 0) { 
+	fprintf(stderr, "Error writing line row %ul\n", y);
+	return 1;
+      }
+    } // end row loop
+
+    free(obuf);
+    free(rbuf);
+    free(gbuf);
+    free(bbuf);
+  }
   
-  if (m_data == NULL) {
-    fprintf(stderr, "Unable to allocate memory in MergeGrayToRGB\n");
+  return 0;
+}
+
+int TiffImage::MergeGrayToRGB(TIFF* in, TIFF* out) const {
+
+  // make sure dircount is right
+  int dircount = 0;
+  do {
+    dircount++;
+  } while (TIFFReadDirectory(in));
+
+  if (dircount < 3) {
+    std::cerr << "Error: Need at least three image IFDs" << std::endl;
     return 1;
   }
+  
+  // assert that they are 8 bit images
+  // assert that they are grayscale
+  for (size_t i = 0; i < 3; ++i) {
+    TIFFSetDirectory(in, i);
+    __gray8assert(in);
+  }
+  
+  // 
+  // for tiled images
+  TIFFSetDirectory(in, 0);
+  if (TIFFIsTiled(in)) {
 
-  for (uint64_t i = 0; i < m_pixels * 3; ++i) {
+    uint64_t ts = TIFFTileSize(in);
+    for (int i = 1; i < 3; i++) {
+      TIFFSetDirectory(in, 1);
+      assert(TIFFTileSize(in) == ts);
+    }
+    
+    // allocate memory for a single tile
+    uint8_t* r_tile = (uint8_t*)calloc(ts, sizeof(uint8_t));
+    uint8_t* g_tile = (uint8_t*)calloc(ts, sizeof(uint8_t));
+    uint8_t* b_tile = (uint8_t*)calloc(ts, sizeof(uint8_t));
+    void*    o_tile = (void*)calloc(ts* 3, sizeof(uint8_t));  
 
-    if (verbose && i % static_cast<uint64_t>(1e9) == 0)
-      std::cerr << "...working on pixel: " <<
-	AddCommas(static_cast<uint64_t>(i)) << std::endl;
+    // loop through the tiles
+    uint64_t x, y;
+    uint64_t m_pix = 0;
+    for (y = 0; y < m_height; y += m_tileheight) {
+      for (x = 0; x < m_width; x += m_tilewidth) {
+	
+	// Read the red tile
+	TIFFSetDirectory(in, 0);
+	if (TIFFReadTile(in, r_tile, x, y, 0, 0) < 0) {
+	  fprintf(stderr, "Error reading red tile at (%d, %d)\n", x, y);
+	  return 1;
+	}
+	
+	// Read the green tile
+	TIFFSetDirectory(in, 1);	
+	if (TIFFReadTile(in, g_tile, x, y, 0, 0) < 0) {
+	  fprintf(stderr, "Error reading green tile at (%d, %d)\n", x, y);
+	  return 1;
+	}
+	
+	// Read the blue tile
+	TIFFSetDirectory(in, 2);
+	if (TIFFReadTile(in, b_tile, x, y, 0, 0) < 0) {
+	  fprintf(stderr, "Error reading blue tile at (%d, %d)\n", x, y);
+	  return 1;
+	}
+	
+	// copy the tile
+	for (size_t i = 0; i < TIFFTileSize(in); ++i) {
+
+	  ++m_pix;
+	  if (verbose && m_pix % static_cast<uint64_t>(1e9) == 0)
+	    std::cerr << "...working on pixel: " <<
+	      AddCommas(static_cast<uint64_t>(m_pix)) << std::endl;
+	  
+	  static_cast<uint8_t*>(o_tile)[i*3    ] = r_tile[i];
+	  static_cast<uint8_t*>(o_tile)[i*3 + 1] = g_tile[i];
+	  static_cast<uint8_t*>(o_tile)[i*3 + 2] = b_tile[i];
+	}
+	
+	// Write the tile to the TIFF file
+	// this function will automatically calculate memory size from TIFF tags
+	if (TIFFWriteTile(out, o_tile, x, y, 0, 0) < 0) { 
+	  fprintf(stderr, "Error writing tile at (%d, %d)\n", x, y);
+	  return 1;
+	}
+	
+      } // end x loop
+    } // end y loop
     
-    static_cast<uint8_t*>(m_data)[i    ] = r.element<uint8_t>(i / 3);
-    static_cast<uint8_t*>(m_data)[i + 1] = g.element<uint8_t>(i / 3);
-    static_cast<uint8_t*>(m_data)[i + 2] = b.element<uint8_t>(i / 3);        
-    
-    /*    uint32_t rgb = r.element<uint8_t>(i);
-    rgb = (rgb << 8) | g.element<uint8_t>(i);
-    rgb = (rgb << 8) | b.element<uint8_t>(i);
-    //rgb = (rgb << 8) | static_cast<uint8_t>(255); // alpha
-    static_cast<uint32_t*>(m_data)[i] = rgb;
-    //static_cast<uint8_t*>(m_data)[i] = r.element<uint8_t>(i);
-    */
+    free(o_tile);
+    free(r_tile);
+    free(g_tile);
+    free(b_tile);
+
   }
 
+  // lined image
+  else {
+
+    // assert that all of the image scanlines are the same
+    TIFFSetDirectory(in, 0);
+    uint64_t ls = TIFFScanlineSize(in);
+
+    for (int i = 1; i < 3; i++) {
+      TIFFSetDirectory(in, i);
+      assert(TIFFScanlineSize(in) == ls);
+    }
+    
+    // allocate memory for a single line
+    uint8_t* rbuf = (uint8_t*)_TIFFmalloc(TIFFScanlineSize(in));
+    uint8_t* gbuf = (uint8_t*)_TIFFmalloc(TIFFScanlineSize(in));
+    uint8_t* bbuf = (uint8_t*)_TIFFmalloc(TIFFScanlineSize(in));
+    uint8_t* obuf = (uint8_t*)_TIFFmalloc(TIFFScanlineSize(in) * 3);
+
+    uint64_t m_pix = 0;
+    for (uint64_t y = 0; y < m_height; y++) {
+      
+      // Read the red line
+      TIFFSetDirectory(in, 0);
+      if (TIFFReadScanline(in, rbuf, y) < 0) {
+	fprintf(stderr, "Error reading red line at row %ul\n", y);
+	return 1;
+      }
+
+      // Read the green line
+      TIFFSetDirectory(in, 1);      
+      if (TIFFReadScanline(in, gbuf, y) < 0) {
+	fprintf(stderr, "Error reading green line at row %ul\n", y);
+	return 1;
+      }
+
+      // Read the blue line
+      TIFFSetDirectory(in, 2);
+      if (TIFFReadScanline(in, bbuf, y) < 0) {
+	fprintf(stderr, "Error reading blue line at row %ul\n", y);
+	return 1;
+      }
+
+      // copy the line
+      for (size_t i = 0; i < TIFFScanlineSize(in); ++i) {
+	
+	++m_pix;
+	if (verbose && m_pix % static_cast<uint64_t>(1e9) == 0)
+	  std::cerr << "...working on pixel: " <<
+	    AddCommas(static_cast<uint64_t>(m_pix)) << std::endl;
+	
+	static_cast<uint8_t*>(obuf)[i*3  ] = rbuf[i];
+	static_cast<uint8_t*>(obuf)[i*3+1] = gbuf[i];
+	static_cast<uint8_t*>(obuf)[i*3+2] = bbuf[i];
+      }
+      
+      // Write the tile to the TIFF file
+      // this function will automatically calculate memory size from TIFF tags
+      if (TIFFWriteScanline(out, obuf, y) < 0) { 
+	fprintf(stderr, "Error writing line row %ul\n", y);
+	return 1;
+      }
+    } // end row loop
+
+    free(obuf);
+    free(rbuf);
+    free(gbuf);
+    free(bbuf);
+
+    
+  }
   return 0;
 }
 

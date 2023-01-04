@@ -1,5 +1,5 @@
 CC = g++
-CFLAGS = -g -std=c++11 `pkg-config --cflags vips-cpp libtiff-4`
+CFLAGS = -g -std=c++11 `pkg-config --cflags vips-cpp libtiff-4` -I/home/jaw34/software/boost-1.81.0/include
 LDFLAGS = `pkg-config --libs vips-cpp libtiff-4`
 
 # Specify the source files

@@ -16,10 +16,8 @@
 #define PIXEL_BLUE 2
 #define PIXEL_ALPHA 3
 
-
-#include <random>
-
 /*
+#include <random>
 int getRandomInt() {
     // Create a random number generator
     std::random_device rd;
@@ -71,9 +69,12 @@ class TiffImage {
   // mean pixel value
   double mean(TIFF* tiff) const;
 
-  // take three 8 bit gray scale images and convert to RGB
-  int MergeGrayToRGB(const TiffImage &r, const TiffImage &g, const TiffImage &b);
+  // take three tiled images and convert to single RBG
+  int MergeGrayToRGB(TIFF* r, TIFF* g, TIFF* b, TIFF* o);
 
+  // take a three IFD image and convert to single RBG
+  int MergeGrayToRGB(TIFF* in, TIFF* out) const;
+  
   /// return the total number of pixels
   uint64_t numPixels() const { return m_pixels; }
 
@@ -81,6 +82,7 @@ class TiffImage {
   int light_mean(TIFF* tif) const;
 
   void setverbose(bool v) { verbose = v; }
+
   
  private:
 
@@ -133,6 +135,9 @@ class TiffImage {
   int __check_tif(TIFF* tif) const;
 
   int __tileind(TIFF* tif, uint32_t x, uint32_t y) const;
+
+  // assert that an image is 8-bit and grayscale
+  void __gray8assert(TIFF* in) const;
   
 };
 
