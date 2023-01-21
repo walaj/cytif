@@ -2,87 +2,227 @@
 
 TiffWriter::TiffWriter(const char* c) {
 
-  m_tif=TIFFOpen(c, "w");
+  m_tif = std::shared_ptr<TIFF>(TIFFOpen(c, "w8"), TIFFClose);
   
   // Open the output TIFF file
-  if (m_tif == NULL) {
+  if (!m_tif) {
     fprintf(stderr, "Error opening %s for writing\n", c);
     return;
   }
 
   m_filename = std::string(c);
+
+  // only no compression currently supported
+  TIFFSetField(m_tif.get(), TIFFTAG_COMPRESSION, COMPRESSION_NONE);
+  
+}
+
+void TiffWriter::CopyFromReader(const TiffReader& tr) {
+
+  // copy the tags from reader tif to writer tif
+  tiffcp(tr.m_tif.get(), m_tif.get(), false);
+
+  // only no compression currently supported
+  TIFFSetField(m_tif.get(), TIFFTAG_COMPRESSION, COMPRESSION_NONE);
   
 }
 
 void TiffWriter::SetTile(int h, int w) {
-  m_tile_width = w;
-  m_tile_height = h;
-
-  TIFFSetField(m_tif, TIFFTAG_TILEWIDTH, m_tile_width);
-  TIFFSetField(m_tif, TIFFTAG_TILELENGTH, m_tile_height);
+  
+  if (!TIFFSetField(m_tif.get(), TIFFTAG_TILEWIDTH, w)) {
+    fprintf(stderr, "ERROR: unable to set tile width %ul on writer\n", w);
+    return;
+  }
+  if (!TIFFSetField(m_tif.get(), TIFFTAG_TILELENGTH, h)) {
+    fprintf(stderr, "ERROR: unable to set tile height %ul on writer\n", h);
+    return;
+  }
   
 }
 
-template <typename U>
-int TiffWriter::WriteTiledImage(const Raster<U>& data) {
+bool TiffWriter::isTiled() {
+
+  assert(m_tif);
+  return(TIFFIsTiled(m_tif.get()));
+}
+
+int TiffWriter::Write(const TiffImage& ti) {
+
+  if (isTiled())
+    return(__tiled_write(ti));
+  else
+    return(__lined_write(ti));
+      
+}
+
+int TiffWriter::__tiled_write(const TiffImage& ti) const {
+
+  // sanity check
+  assert(TIFFIsTiled(m_tif.get()));
+  assert(TIFFTileSize(m_tif.get()));
+
+  // pull tile and image dims directly from libtiff writer
+  uint32_t o_tile_width, o_tile_height;
+  assert(TIFFGetField(m_tif.get(), TIFFTAG_TILEWIDTH, &o_tile_width));
+  assert(TIFFGetField(m_tif.get(), TIFFTAG_TILELENGTH, &o_tile_height));  
+  uint32_t m_width, m_height;
+  assert(TIFFGetField(m_tif.get(), TIFFTAG_IMAGEWIDTH, &m_width));
+  assert(TIFFGetField(m_tif.get(), TIFFTAG_IMAGELENGTH, &m_height));  
+
+  uint8_t mode = GetMode(); 
+
+  if (mode != ti.GetMode()) {
+    fprintf(stderr, "Mode of writer: %d, mode of image: %d\n", mode, ti.GetMode());
+    fprintf(stderr, "Will attempt to continue, but not sure this is what you want\n");
+  }
+  
+  // error check that tile dimensions
+  if (o_tile_width % 16) {
+    fprintf(stderr, "ERROR: output tile dims must be multiple of 16, it is: %d\n", o_tile_width);
+    return 1;
+  }
+  if (o_tile_height % 16) {
+    fprintf(stderr, "ERROR: output tile dims must be multiple of 16, it is: %d\n", o_tile_height);
+    return 1;
+  }
 
   // Allocate a buffer for the output tiles
-  uint8_t *outtilebuf = (uint8_t*)_TIFFmalloc(TIFFTileSize(otif));
-  if (outtilebuf == NULL) {
+  void* buf = _TIFFmalloc(TIFFTileSize(m_tif.get()));
+  if (buf == NULL) {
     fprintf(stderr, "Error allocating memory for tiles\n");
     return 1;
   }
-  
-  // Write the tiles to the TIFF file
-  int num_height_tiles = (int)std::ceil((double)m_height / m_tile_height);
-  int num_width_tiles  = (int)std::ceil((double)m_width /  m_tile_width);
 
-  if (m_verbose) {
-    std::cerr << " h " << m_width << " num tiles H " << num_height_tiles <<
-      " w " << m_width << " num tiles W " << num_width_tiles << std::endl;
-    std::cerr << " writing " << m_filename << std::endl;
-  }
-  
-  for (y = 0; y < num_height_tiles; y++) {
-    for (x = 0; x < num_width_tiles; x++) {
-      
+  // loop through the output image tiles and write the pixels
+  // from the raster
+  uint64_t x, y;
+
+  for (y = 0; y < m_height; y += o_tile_height) {
+    for (x = 0; x < m_width; x += o_tile_width) {
       // Fill the tile buffer with data
-      for (int ty = 0; ty < m_tile_height; ty++) {
-	for (int tx = 0; tx < m_tile_width; tx++) {
-	  //  std::cerr << "[" << y * m_tile_width + tx << "," <<
-	  //    y * m_tile_height + ty << "] = " << static_cast<unsigned int>(data[x * m_tile_width+ tx][y * m_tile_height + ty]) << endl;
-	  //    std::cerr << (x * num_width_tiles + tx) << "," << y * num_height_tiles + ty << std::endl;
-	  if ( (x * m_tile_width + tx) < width && (y * m_tile_height + ty) < height) {
-	    outtilebuf[ty * m_tile_width + tx] = data[x * m_tile_width + tx][y * m_tile_height + ty];
+      for (uint64_t ty = 0; ty < o_tile_height; ty++) {
+	for (uint64_t tx = 0; tx < o_tile_width; tx++) {
+	  uint64_t xp = x + tx; // want 64 bits to be able to store really big d_pos, since this is the nth pixel
+	  uint64_t yp = y + ty;
+	  uint64_t d_pos = yp * m_width + xp; // index of pixel in the entire image
+	  uint64_t t_pos = ty * o_tile_width + tx; // index of pixel in this particular tile
+	  if (xp < m_width && yp < m_height) {
+	    switch(mode) {
+	    case 8:
+	      static_cast<uint8_t*>(buf)[t_pos] = ti.pixel(xp, yp, PIXEL_GRAY);
+	      break;
+	      //case 32:
+	      //static_cast<uint32_t*>(buf)[t_pos] = ti.pixel<uint32_t>(xp, yp, PIXEL_GRAY);
+	      //break;
+	    case 3:
+	      t_pos = t_pos * 3;
+	      static_cast<uint8_t*>(buf)[t_pos]     = ti.pixel(xp, yp, PIXEL_RED);
+	      static_cast<uint8_t*>(buf)[t_pos + 1] = ti.pixel(xp, yp, PIXEL_GREEN);
+	      static_cast<uint8_t*>(buf)[t_pos + 2] = ti.pixel(xp, yp, PIXEL_BLUE);
+	      break;
+	    }
 	  }
 	}
       }
 
-      //std::cerr << " WRITING TILE " << x << " , " << y << " random " << static_cast<unsigned int>(outtilebuf[100]) << std::endl;
       // Write the tile to the TIFF file
-      
-      if (TIFFWriteTile(otif, outtilebuf, x * m_tile_width, y * m_tile_height, 0, 0) < 0) {
+      // this function will automatically calculate memory size from TIFF tags
+      if (TIFFWriteTile(m_tif.get(), buf, x, y, 0, 0) < 0) { 
 	fprintf(stderr, "Error writing tile at (%d, %d)\n", x, y);
-	_TIFFfree(outtilebuf);
 	return 1;
       }
-      
-      
     }
   }
 
   // Clean up
-  _TIFFfree(outtilebuf);
+  _TIFFfree(buf);
+  
+  return 0;
+}
 
+void TiffWriter::MatchTagsToRaster(const TiffImage& ti) {
+
+  TIFFSetField(m_tif.get(), TIFFTAG_IMAGEWIDTH, ti.m_width);
+  TIFFSetField(m_tif.get(), TIFFTAG_IMAGELENGTH, ti.m_height);
   
 }
 
-void TiffWriter::SetField(ttag+t tag, ...) {
+int TiffWriter::__lined_write(const TiffImage& ti) const {
 
-  TIFFSetField(m_tif, tag, ...);
+  uint64_t ls = TIFFScanlineSize(m_tif.get());
+  assert(ls);
 
+  uint32_t m_width, m_height;
+  assert(TIFFGetField(m_tif.get(), TIFFTAG_IMAGEWIDTH, &m_width));
+  assert(TIFFGetField(m_tif.get(), TIFFTAG_IMAGELENGTH, &m_height));  
+
+  if (m_width != ti.m_width) {
+    fprintf(stderr, "Warning: Image dim %d x %d does not match writer tag %d x %d\n", ti.m_width, ti.m_height, m_width, m_height);
+    fprintf(stderr, "         Attempting to write anyway\n");
+  }
+  
+  uint8_t m_mode = GetMode(); 
+  
+  if (m_mode != ti.GetMode()) {
+    fprintf(stderr, "Mode of writer: %d, mode of image: %d\n", m_mode, ti.GetMode());
+    fprintf(stderr, "Will attempt to continue, but not sure this is what you want\n");
+  }
+
+  // this should take into account the mode, since TIFFScanlineSize should
+  // factor in samples per pixel. But we'll always work with it as a uint8_t array
+  // for ease
+  //uint8_t* buf = (uint8_t*)_TIFFmalloc(TIFFScanlineSize(otif));
+
+  for (uint64_t y = 0; y < m_height; y++) {
+
+    // copy directly from m_data since the order of writing
+    // in a scanline file is same as order that m_data is stored
+    // this should be really clean because it doesn't make me guess the
+    // number of bytes per pixel to deal with
+    if (TIFFWriteScanline(m_tif.get(), static_cast<uint8_t*>(ti.m_data) + y * ls, y, 0) < 0) {
+      fprintf(stderr, "Error writing line row %ul\n", y);
+      return 1;
+    }
+    
+    //          memcpy(buf, m_data + y * ls, ls);
+  }
+  return 0;
 }
 
-void TiffWriter::~TiffWriter() {
-  TIFFClose(m_tif);
+
+
+/*void TiffWriter::SetField(ttag+t tag, ...) {
+
+  TIFFSetField(m_tif.get(), tag, ...);
+
+  }*/
+
+/*TiffWriter::~TiffWriter() {
+
+  if (m_tif != NULL) 
+    TIFFClose(m_tif);
+  m_tif = NULL;
+  }*/
+
+
+uint8_t TiffWriter::GetMode() const {
+
+  uint16_t samples_per_pixel, bits_per_sample;
+
+  assert(TIFFGetField(m_tif.get(), TIFFTAG_BITSPERSAMPLE, &bits_per_sample));
+  assert(TIFFGetField(m_tif.get(), TIFFTAG_SAMPLESPERPIXEL, &samples_per_pixel));
+  
+  // RGB
+  if (samples_per_pixel == 3) 
+    return 3;
+  else if (bits_per_sample == 8) 
+    return 8;
+  else if (bits_per_sample == 16) 
+    return 16;
+  else if (bits_per_sample == 32)
+    return 32;
+  else if (samples_per_pixel == 4)
+    return 4;
+  return 0;
+  
 }

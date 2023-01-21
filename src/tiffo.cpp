@@ -11,9 +11,13 @@
 
 #include "tiff_header.h"
 #include "tiff_image.h"
+#include "tiff_reader.h"
+#include "tiff_writer.h"
 #include "tiff_cp.h"
+#include "plot.h"
 
 #include "cell.h"
+
 
 /*
 #define myascii(c) (((c) & ~0x7f) == 0)
@@ -114,8 +118,6 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  //opt::module = argv[1];
-  
   parseRunOptions(argc, argv);
   
   // get the module
@@ -138,13 +140,10 @@ int findmean() {
   // open a tiff
   // the "m" keeps it from being memory mapped, which for
   // a single pass just causes memory overruns from the C memmap func
-  TIFF* tif = tiffload(opt::infile.c_str(), "rm");
-
-  TiffImage im(tif);
-  im.setverbose(opt::verbose);
+  TiffReader reader(opt::infile.c_str());
 
   // this routine will handle printing output to stdout
-  im.light_mean(tif);
+  reader.print_means();
 
   return 0;
 }
@@ -153,8 +152,6 @@ static int csvproc() {
 
   std::ifstream       file(opt::quantfile);
   std::string         line;
-
-  CellTable table;
   
   // parse the header from the quant table
   CellHeader header;
@@ -164,20 +161,49 @@ static int csvproc() {
     std::cerr << "Error reading CSV header from " << opt::infile;
     return 1;
   }
+
+  // this the main quant table
+  CellTable table(&header);
   
+  // for printing only
   size_t cellid = 0;
   
   // loop the table and build the CellTable
   while (std::getline(file, line)) {
 
     ++cellid;
-    Cell cel(line, header);
-    table.addCell(cel);
-
+    table.addCell(Cell(line, &header));
+    
     if (cellid % 100000 == 0 && opt::verbose)
       std::cerr << "...reading cell " << AddCommas(static_cast<uint32_t>(cellid)) << std::endl;
   }
 
+  ////////
+  /// UMAP
+  ////////
+
+  // make a column
+  /*
+  std::vector<double> embedding(table.size() * 2);
+  umappp::Umap x;
+  std::vector<double> data = table.ColumnMajor();
+
+  int ndim = table.NumMarkers();
+  int nobs = table.size();
+
+  std::cerr << " sending to umap" << std::endl;
+  x.run(ndim, nobs, data.data(), 2, embedding.data());
+  std::cerr << " done with umap" << std::endl;
+  */
+  return 1;
+  ////////
+  /// CIRCLES
+  ////////
+
+
+
+
+  
   // open the input tiff
   TIFF *itif = TIFFOpen(opt::infile.c_str(), "rm");
   
@@ -195,15 +221,15 @@ static int csvproc() {
   TIFFSetField(otif, TIFFTAG_SAMPLESPERPIXEL, 1);
   TIFFSetField(otif, TIFFTAG_BITSPERSAMPLE, 8);  
 
-  TiffImage circles(otif);
+  //TiffImage circles(otif);
 
-  circles.setverbose(opt::verbose);
+  //circles.setverbose(opt::verbose);
 
-  circles.DrawCircles(otif, table);
+  //circles.DrawCircles(otif, table);
 
-  std::cerr << " writing " << std::endl;
-  circles.write(otif);
-  TIFFClose(otif);
+  //std::cerr << " writing " << std::endl;
+  //circles.write(otif);
+  //TIFFClose(otif);
   
   /*
   // VORONOI
@@ -250,31 +276,9 @@ static int csvproc() {
 }
 
 static int gray2rgb() {
-  
-  // if we have three separate RGB file
-  if (!opt::redfile.empty()) {
-    if (opt::greenfile.empty() || opt::bluefile.empty()) {
-      std::cerr << "Error: Must specify red, green and blue files" << std::endl;
-      return 1;
-    }
-
-   // the way its parsed, the first non-labeled file is in.
-    // so we just change it to the outfile since the infiles are
-    // set by the -r, -g, -b flags
-    opt::outfile = opt::infile; 
-    
-  } else {
-    opt::redfile = opt::infile; // in this case, red file is also red,green,blue
-  }
-
-  // messing around with the tiff header
-  //TiffHeader thead(opt::infile);
-  //thead.view_stdout();
 
   // open either the red channel or the 3-IFD file
-  TIFF *r_itif = TIFFOpen(opt::redfile.c_str(), "rm");
-  TiffImage rimage(r_itif);  
-  rimage.setverbose(opt::verbose);
+  TIFF *r_itif = TIFFOpen(opt::infile.c_str(), "rm");
 
   // Open the output TIFF file
   TIFF* otif = TIFFOpen(opt::outfile.c_str(), "w8");
@@ -286,42 +290,15 @@ static int gray2rgb() {
   // copy all of the tags from in to out
   tiffcp(r_itif, otif, false);
   
-  // setup the RGB output file
-  TiffImage rgb(r_itif);
-  rgb.setverbose(opt::verbose);
-  
   TIFFSetField(otif, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_RGB);
   TIFFSetField(otif, TIFFTAG_SAMPLESPERPIXEL, 3);
 
   // if this is a single 3 IFD file
-  if (opt::greenfile.empty()) {
-
-    // new way
-    rgb.MergeGrayToRGB(r_itif, otif);
-    TIFFClose(r_itif);
-  }
-
-  // we have three separate files
-  else {
-    
-    // read in the TIFF as a green channel
-    TIFF *g_itif = TIFFOpen(opt::greenfile.c_str(), "rm");
-    TiffImage gimage;
-    gimage.setverbose(opt::verbose);
-    gimage = TiffImage(g_itif);
-    
-    // read in the TIFF as a blue channel
-    TIFF *b_itif = TIFFOpen(opt::bluefile.c_str(), "rm");
-    TiffImage bimage;
-    bimage = TiffImage(b_itif);
-    bimage.setverbose(opt::verbose);
-    
-    rgb.MergeGrayToRGB(r_itif, g_itif, b_itif, otif);
-  }
+  MergeGrayToRGB(r_itif, otif);
   
-  // close the image for writing
-  TIFFClose(otif);  
-
+  TIFFClose(r_itif);
+  TIFFClose(otif);
+  
   return 0;
 }
 
@@ -331,7 +308,7 @@ static int gray2rgb() {
 static void parseRunOptions(int argc, char** argv) {
   bool die = false;
 
-  if (argc <= 2) 
+  if (argc <= 1) 
     die = true;
 
   bool help = false;
@@ -364,11 +341,14 @@ static void parseRunOptions(int argc, char** argv) {
     } 
     optind++;
   }
-  
+
   if (! (opt::module == "gray2rgb" || opt::module == "mean" || opt::module == "csv" || opt::module == "debug") ) {
     std::cerr << "Module " << opt::module << " not implemented" << std::endl;
     die = true;
   }
+
+  if (opt::module == "gray2rgb" && argc != 4)
+    die = true;
   
   if (die || help) 
     {
@@ -382,8 +362,32 @@ static void parseRunOptions(int argc, char** argv) {
 
 static int debugfunc() {
 
+  TiffReader reader(opt::infile.c_str());
 
-  std::cerr << " opening file " << opt::infile << std::endl;
+  reader.print();
+
+  //std::cout << "...working on mean" << std::endl;
+  //reader.print_means();
+
+  TiffImage image(reader);
+  std::cerr << "...reading in" << std::endl;
+  image.ReadToRaster();
+
+  // shrink it
+  float scale_factor = 1000.0f / image.width();
+  image.Scale(scale_factor, true);
+  
+  TiffWriter writer(opt::outfile.c_str());
+  writer.CopyFromReader(reader);
+  writer.MatchTagsToRaster(image);
+
+  std::cerr << "...writing" << std::endl;
+  writer.Write(image);
+  
+  //myplot();
+  return 1;
+  
+  /* std::cerr << " opening file " << opt::infile << std::endl;
   TIFF* in = TIFFOpen(opt::infile.c_str(), "rm");
 
   std::cerr << " making output file " << opt::outfile << std::endl;
@@ -392,7 +396,7 @@ static int debugfunc() {
   std::cerr << " making TiffImage and reading to raster" << std::endl;
   TiffImage tin(in);
   tin.setverbose(true);
-  tin.ReadToRaster(in);
+  tin.ReadToRaster();
 
   std::cerr << " mean of input " << tin.mean(in) << std::endl;
 
@@ -406,6 +410,7 @@ static int debugfunc() {
   TIFFClose(in);
   TIFFClose(out);
 
+  */
   return 0;
     
   

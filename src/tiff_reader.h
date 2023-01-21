@@ -5,45 +5,58 @@
 #include <cassert>
 #include <vector>
 #include <tiffio.h>
+#include <iostream>
+#include <memory>
 
-#include "tiff_header.h"
+#include "tiff_ifd.h"
 
+// this class does not store pixel data, but
+// does contain the TIFF pointer to the original image.
+// it will *never* change the properties of the TIFF pointer
 class TiffReader {
 
  public:
 
+  friend class TiffWriter;
+  
   // create an empty TiffReader
   TiffReader() {}
 
   // destroy and close
-  ~TiffReader();
+  ~TiffReader() {}
   
   // create a new reader from a filename
   TiffReader(const char* c);
   
-  // set to whether image data should be read and stored
-  // as 32 bit or 8 bit
-  //int SetDataMode(TiffReaderType t);
-  
-  //template <typename U>
-  //int __read_image() {
-  
   // return the number of IFDs
   size_t NumDirs() const;
-  
-  int ReadImage();
+
+  // print it for debugging
+  friend std::ostream& operator<<(std::ostream& out, const TiffReader& o);
+
+  TiffIFD CurrentIFD() const {
+    assert(curr_ifd < m_ifds.size());
+    return m_ifds.at(curr_ifd);
+  }
+
+  void light_mean();
+
+  void print();
+
+  void print_means();
   
  private:
-
+  
   std::string m_filename;
 
   size_t m_num_dirs;
 
-  TiffHeader m_tif_header;
+  std::shared_ptr<TIFF> m_tif;
 
-  //template <typename U>
-  //int __read_tiled_image();
+  std::vector<TiffIFD> m_ifds;
 
+  size_t curr_ifd = 0;
+  
 };
 
 #endif

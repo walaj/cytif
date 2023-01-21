@@ -2,41 +2,50 @@
 #define TIFF_WRITER_H
 
 #include <string>
+#include <memory>
 #include "tiffio.h"
+#include "tiff_reader.h"
+#include "tiff_image.h"
 
 class TiffWriter {
 
  public:
 
   // create an empty TiffWriter
- TiffWriter() {
-   m_tile_width = 0;
-   m_tile_height = 0;
- }
+  TiffWriter() {}
+  
+  TiffWriter(const TiffReader& tr);
 
+  TiffWriter(const char* c);
+    
   // destroy
-  ~TiffWriter();
+  ~TiffWriter() {}
 
- //
- void SetTag(ttag_t tag, ...);
+  bool isTiled();
+  
+  //
+  void SetTag(ttag_t tag, ...);
+  
+  void SetTile(int h, int w);
 
- TIFF* GetTiff() const { return m_tif; }
+  int Write(const TiffImage& ti);
 
-  int WriteTiledImage();
+  void MatchTagsToRaster(const TiffImage& ti);
+  
+  void CopyFromReader(const TiffReader& tr);
 
-  void SetTiled(int h, int w);
+  uint8_t GetMode() const;
   
  private:
 
   std::string m_filename;
 
-  size_t m_width, m_height;
-  
-  size_t m_tile_width, m_tile_height;
-
-  TIFF *m_tif;
+  std::shared_ptr<TIFF> m_tif;
 
   bool m_verbose = true;
+
+  int __tiled_write(const TiffImage& ti) const;
+  int __lined_write(const TiffImage& ti) const;  
 
 };
 

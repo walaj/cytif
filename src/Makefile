@@ -1,9 +1,39 @@
 CC = g++
-CFLAGS = -g -std=c++17 `pkg-config --cflags vips-cpp libtiff-4` -I/home/jaw34/software/boost-1.81.0/include -I/home/jaw34/git/voronoi/src
-LDFLAGS = `pkg-config --libs vips-cpp libtiff-4`
+
+TIFF = $(shell pkg-config --define-variable=prefix=/home/jaw34/software/libtiff-4.4.0 --cflags vips-cpp libtiff-4)
+
+#EIGEN = -I/home/jaw34/software/eigen-3.4.0
+#KNN = -I/home/jaw34/git/knncolle/include
+#VOR = -I/home/jaw34/git/voronoi/src
+#ARAND = -I//home/jaw34/git/aarand/include
+#UMAP =  -I/home/jaw34/git/umappp/include
+#ANNOY = -I/home/jaw34/git/annoy
+#HNSW = -I/home/jaw34/git/hnswlib
+#KMEANS = -I/home/jaw34/git/CppKmeans/include
+#IRLBA = -I/home/jaw34/git/CppIrlba/include
+
+# old
+##RCPP = $(shell Rscript -e "Rcpp:::CxxFlags()")
+##RR = $(shell R CMD config --cppflags)
+##PYTHON=$(shell pkg-config --cflags python3)
+
+MATPLOTPLUS=-I/home/jaw34/software/matplotplusplus-1.1.0/include
+MATPLOTPLUSLD=/home/jaw34/software/matplotplusplus-1.1.0/lib/libmatplot.a /home/jaw34/software/matplotplusplus-1.1.0/lib/Matplot++/libnodesoup.a
+
+# this line needs to be fixed to make it portable
+# this link depends on libffi, so need to do "conda install libffi"
+PYTHONLD=-L/home/jaw34/mambaforge/envs/scimap/lib -lpython3 -lffi -lpcre
+
+##RCPPLD = $(shell Rscript -e "Rcpp:::LdFlags()")
+##RLD = $(shell R CMD config --ldflags)
+TIFFLD = $(shell pkg-config --define-variable=prefix=/home/jaw34/software/libtiff-4.4.0 --libs libtiff-4)
+##VIPSLD = $(shell pkg-config --libs vips-cpp)
+
+CFLAGS = -g -std=c++17 $(TIFF) $(UMAP) $(KNN) $(VOR) $(EIGEN) $(ARAND) $(IRLBA) $(HNSW) $(KMEANS) $(ANNOY) $(MATPLOTPLUS)
+LDFLAGS = $(RCPPLD) $(TIFFLD) $(VIPSLD) $(MATPLOTPLUSLD) -ljpeg -lz -lpng
 
 # Specify the source files
-SRCS = tiffo.cpp tiff_header.cpp tiff_image.cpp tiff_cp.cpp cell.cpp 
+SRCS = tiffo.cpp tiff_header.cpp tiff_image.cpp tiff_cp.cpp cell.cpp plot.cpp tiff_reader.cpp tiff_ifd.cpp tiff_utils.cpp tiff_writer.cpp
 
 # Specify the object files
 OBJS = $(SRCS:.cpp=.o)
