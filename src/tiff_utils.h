@@ -11,6 +11,10 @@
 
 #include "tiffio.h"
 
+using funcmm_t = double (*)(uint8_t*, size_t); // mean vs mode function object
+
+#define PAIRSTRING(X_, Y_) "(" + std::to_string(X_) + ", " + std::to_string(Y_) +  ")"
+
 int MergeGrayToRGB(TIFF* in, TIFF* out);
 
 static int cnt = 0; 
@@ -61,23 +65,27 @@ int inline check_tif(TIFF* tif) {
   return 0;
 }
 
-double inline getMean(std::vector<int>& vec) {
-    int sum = std::accumulate(vec.begin(), vec.end(), 0);
-    int n = vec.size();
-    return (double)sum / n;
+double inline getMean(uint8_t* vec, size_t len) {
+  uint64_t sum = 0;
+  for (size_t i = 0; i < len; i++)
+    sum += vec[i];
+  return (double)sum / len;
+  //    int sum = std::accumulate(vec.begin(), vec.end(), 0);
+  //  int n = vec.size();
+  //  return (double)sum / n;
 }
 
-int inline getMode(std::vector<int>& vec) {
-    std::unordered_map<int, int> count;
-    for (int i : vec) 
-        count[i]++;
+double inline getMode(uint8_t* vec, size_t len) {
+    std::unordered_map<uint8_t, int> count;
+    for (int i = 0; i < len; i++) 
+      count[vec[i]]++;
     int mode = vec[0];
     int maxCount = 0;
     for (auto i : count) {
-        if (i.second > maxCount) {
-            mode = i.first;
-            maxCount = i.second;
-        }
+      if (i.second > maxCount) {
+	mode = i.first;
+	maxCount = i.second;
+      }
     }
     return mode;
 }

@@ -1,5 +1,17 @@
 #include "tiff_writer.h"
 
+int TiffWriter::SetTag(uint32_t tag, ...) {
+
+  va_list ap;
+  int status;
+  
+  va_start(ap, tag);
+  status = TIFFVSetField(m_tif.get(), tag, ap);
+  va_end(ap);
+  return (status);
+  
+}
+
 TiffWriter::TiffWriter(const char* c) {
 
   m_tif = std::shared_ptr<TIFF>(TIFFOpen(c, "w8"), TIFFClose);
@@ -37,6 +49,13 @@ void TiffWriter::SetTile(int h, int w) {
     fprintf(stderr, "ERROR: unable to set tile height %ul on writer\n", h);
     return;
   }
+
+  // turn off the tiled flag
+  if (h == 0 || w == 0) {
+    TIFFSetTiledOff(m_tif.get());
+    TIFFUnsetField(m_tif.get(), TIFFTAG_TILEWIDTH);
+    TIFFUnsetField(m_tif.get(), TIFFTAG_TILELENGTH);    
+  }
   
 }
 
@@ -48,6 +67,19 @@ bool TiffWriter::isTiled() {
 
 int TiffWriter::Write(const TiffImage& ti) {
 
+  uint32_t m_width, m_height;
+  assert(TIFFGetField(m_tif.get(), TIFFTAG_IMAGEWIDTH, &m_width));
+  assert(TIFFGetField(m_tif.get(), TIFFTAG_IMAGELENGTH, &m_height));  
+
+  if (ti.m_width != m_width) {
+    std::cerr << "Warning: Image writer has width " << m_width <<
+      " and image width " << ti.m_width << ". You may want to run writer.UpdateDims(image)" << std::endl;
+  }
+  if (ti.m_height != m_height) {
+    std::cerr << "Warning: Image writer has height " << m_height <<
+      " and image height " << ti.m_height << ". You may want to run writer.UpdateDims(image)" << std::endl;
+  }
+
   if (isTiled())
     return(__tiled_write(ti));
   else
@@ -55,12 +87,19 @@ int TiffWriter::Write(const TiffImage& ti) {
       
 }
 
+void TiffWriter::UpdateDims(const TiffImage& ti) {
+
+  assert(TIFFSetField(m_tif.get(), TIFFTAG_IMAGEWIDTH, ti.m_width));
+  assert(TIFFSetField(m_tif.get(), TIFFTAG_IMAGELENGTH, ti.m_height));  
+  
+}
+
 int TiffWriter::__tiled_write(const TiffImage& ti) const {
 
   // sanity check
   assert(TIFFIsTiled(m_tif.get()));
   assert(TIFFTileSize(m_tif.get()));
-
+  
   // pull tile and image dims directly from libtiff writer
   uint32_t o_tile_width, o_tile_height;
   assert(TIFFGetField(m_tif.get(), TIFFTAG_TILEWIDTH, &o_tile_width));

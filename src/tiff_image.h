@@ -51,6 +51,8 @@ class TiffImage {
   ~TiffImage() {
     clear_raster();
   }
+
+  TiffImage(uint32_t width, uint32_t height, uint8_t mode);
   
   // access the data pointer
   void* data() const { return m_data; }
@@ -82,21 +84,25 @@ class TiffImage {
   void setverbose(bool v) { verbose = v; }
 
   // draw circles
-  int DrawCircles(const CellTable& table);
+  int DrawCircles(const CellTable& table, int radius);
 
-  // scale the image down
-  int Scale(double scale, bool ismode);
+  // scale the image downx
+  int Scale(double scale, bool ismode, int threads);
 
   // get the mode (gray 8-bit, RBG etc)
   uint8_t GetMode() const;
 
   uint32_t width() const { return m_width; }
   uint32_t height() const { return m_height; }   
+
+  void setthreads(size_t threads) { m_threads = threads; }
   
  private:
 
   bool verbose= false;
 
+  size_t m_threads = 1;
+  
   TiffReader m_tr;
 
   TiffIFD m_ifd;
@@ -111,11 +117,21 @@ class TiffImage {
   uint64_t m_pixels = 0;
 
   // various TIFF flags
+  // useful to know that options for photometric are:
+  // - PHOTOMETRIC_MINISBLACK
+  // - PHOTOMETRIC_MINISWHITE
+  // - PHOTOMETRIC_RGB
+  // - PHOTOMETRIC_MASK
+  // - PHOTOMETRIC_DEPTH  
+  // - PHOTOMETRIC_PALATTE
+  // useful to know that options for planar config are:
+  // PLANARCONFIG_CONTIG 1 -- RGBA RGBA RGBA etc (interleaved)
+  // PLANARCONFIG_SEPARATE 2 -- RRRRRR GGGGGG BBBBB etc (separate planes)
   uint16_t m_photometric, m_planar, m_bits_per_sample, m_samples_per_pixel;
 
   // allocate the memory for the image raster
   // used for starting with a blank image
-  int __alloc(); 
+  int __alloc();
   
   // has the image had its raster stored to memory
   bool __is_rasterized() const;

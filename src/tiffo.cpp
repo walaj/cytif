@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <iostream>
+#include <zlib.h>
 
 #include <vector>
 #include <tiffio.h>
@@ -18,6 +19,14 @@
 
 #include "cell.h"
 
+#include "umappp/Umap.hpp"
+#include "umappp/NeighborList.hpp"
+#include "umappp/combine_neighbor_sets.hpp"
+#include "umappp/find_ab.hpp"
+#include "umappp/neighbor_similarities.hpp"
+#include "umappp/optimize_layout.hpp"
+#include "umappp/spectral_init.hpp"
+#include "knncolle/knncolle.hpp"
 
 /*
 #define myascii(c) (((c) & ~0x7f) == 0)
@@ -46,6 +55,7 @@ namespace opt {
   static std::string redfile;
   static std::string greenfile;
   static std::string bluefile;
+  static int threads = 1;
 }
 
 #define DEBUG(x) std::cerr << #x << " = " << (x) << std::endl
@@ -57,13 +67,14 @@ namespace opt {
 
 #define JC_VORONOI_IMPLEMENTATION
 
-static const char* shortopts = "hvr:g:b:q:";
+static const char* shortopts = "hvr:g:b:q:c:";
 static const struct option longopts[] = {
   { "verbose",                    no_argument, NULL, 'v' },
   { "red",                        required_argument, NULL, 'r' },
   { "green",                      required_argument, NULL, 'g' },
   { "blue",                       required_argument, NULL, 'b' },
-  { "quant-file",                 required_argument, NULL, 'q' },      
+  { "quant-file",                 required_argument, NULL, 'q' },
+  { "threads",                    required_argument, NULL, 'c' },
   { NULL, 0, NULL, 0 }
 };
 
@@ -73,12 +84,15 @@ static const char *RUN_USAGE_MESSAGE =
 "  gray2rgb - Convert a 3-channel gray TIFF to a single RGB\n"
 "  mean - Give the mean pixel for each channel\n"
 "  csv - <placeholder for csv processing>\n"
+"  knn - find the K-nearest neighbors\n"
   "\n";
   
 static int gray2rgb();
 static int findmean();
 static int csvproc();
 static int debugfunc();
+static int circles();
+static int knn();
 static void parseRunOptions(int argc, char** argv);
 
 /*
@@ -130,6 +144,12 @@ int main(int argc, char **argv) {
     return(csvproc());
   } else if (opt::module == "debug") {
     return(debugfunc());
+  } else if (opt::module == "circles") {
+    return(circles());
+  } else if (opt::module == "knn") {
+    return(knn());
+  } else {
+    assert(false);
   }
 
   return 1;
@@ -150,86 +170,89 @@ int findmean() {
 
 static int csvproc() {
 
-  std::ifstream       file(opt::quantfile);
-  std::string         line;
-  
-  // parse the header from the quant table
-  CellHeader header;
-  if (std::getline(file, line)) {
-    header = CellHeader(line);
-  } else {
-    std::cerr << "Error reading CSV header from " << opt::infile;
-    return 1;
-  }
+  // make the header
+  CellHeader header(opt::quantfile);
 
   // this the main quant table
-  CellTable table(&header);
+  std::cerr << "...reading table" << std::endl;
+  CellTable table(opt::quantfile, &header,10000);
   
-  // for printing only
-  size_t cellid = 0;
-  
-  // loop the table and build the CellTable
-  while (std::getline(file, line)) {
-
-    ++cellid;
-    table.addCell(Cell(line, &header));
-    
-    if (cellid % 100000 == 0 && opt::verbose)
-      std::cerr << "...reading cell " << AddCommas(static_cast<uint32_t>(cellid)) << std::endl;
-  }
-
   ////////
   /// UMAP
   ////////
+  //  table = table.Head(100000);
+  std::cerr << "...umap on table of size " << table.size() << std::endl;
 
   // make a column
-  /*
   std::vector<double> embedding(table.size() * 2);
   umappp::Umap x;
+  //x.set_num_threads(opt::threads);
+  //x.set_num_neighbors();
   std::vector<double> data = table.ColumnMajor();
 
   int ndim = table.NumMarkers();
   int nobs = table.size();
-
-  std::cerr << " sending to umap" << std::endl;
-  x.run(ndim, nobs, data.data(), 2, embedding.data());
-  std::cerr << " done with umap" << std::endl;
-  */
-  return 1;
-  ////////
-  /// CIRCLES
-  ////////
-
-
-
-
   
-  // open the input tiff
-  TIFF *itif = TIFFOpen(opt::infile.c_str(), "rm");
+  // find K nearest neighbors
+  std::cerr << "...finding K nearest-neighbors" << std::endl;  
+  int num_neighbors = 300;
   
-  // create a raw tiff to draw circles onto
-  TIFF* otif = TIFFOpen(opt::outfile.c_str(), "w8");
-  if (otif == NULL) {
-    fprintf(stderr, "Error opening %s for writing\n", opt::outfile);
-    return 1;
+  knncolle::AnnoyEuclidean<> searcher(ndim, nobs, data.data());
+  const size_t N = nobs; //searcher->nobs();
+  umappp::NeighborList<double> output(N);
+#pragma omp parallel for num_threads(opt::threads) //rparams.nthreads)
+  for (size_t i = 0; i < N; ++i) {
+    if (i % 20000 == 0)
+      std::cerr << " i " << AddCommas(i) << " thread " << omp_get_thread_num() << " K " << num_neighbors << std::endl;
+    output[i] = searcher.find_nearest_neighbors(i, num_neighbors);
   }
 
-  // copy all of the tags from in to out
-  tiffcp(itif, otif, false);
+  // store it
+  std::cerr << "...writing KNN" << std::endl;
+  std::ofstream out_file;
+  out_file.open("knn.annoy.csv", std::ios::trunc); 
+
+  // Check if the file was successfully opened
+  if (!out_file.is_open()) {
+    std::cout << "Failed to open the file." << std::endl;
+    return 1;
+  }
   
-  TIFFSetField(otif, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_MINISBLACK);
-  TIFFSetField(otif, TIFFTAG_SAMPLESPERPIXEL, 1);
-  TIFFSetField(otif, TIFFTAG_BITSPERSAMPLE, 8);  
+  size_t i = 0; 
+  for (auto& o : output) {
+    for (auto& n : o) {
 
-  //TiffImage circles(otif);
+      std::string data = std::to_string(i) + "," + std::to_string(n.first) + "," + std::to_string(n.second);
+      
+      // Compress the data
+      /*      uLongf compressed_length = compressBound(data.size());
+      std::unique_ptr<Bytef[]> compressed_data(new Bytef[compressed_length]);
+      compress(compressed_data.get(), &compressed_length, (const Bytef*)data.c_str(), data.size());
+      
+      // Write the compressed data to the file
+      out_file.write((const char*)compressed_data.get(), compressed_length);
+      */
+      out_file << data << std::endl;
+    }
+    i++;
+  }
 
-  //circles.setverbose(opt::verbose);
+  out_file.close();
+  
+  std::cerr << "...done with K nearest-neighbors" << std::endl;
 
-  //circles.DrawCircles(otif, table);
 
-  //std::cerr << " writing " << std::endl;
-  //circles.write(otif);
-  //TIFFClose(otif);
+  return 1;
+  //initialize(std::move(output), ndim, embedding);
+  //auto status = umappp::initialize(ndim, nobs, data.data(), 2, embedding.data());
+  //return 1;
+
+  x.run(&searcher, 2, embedding.data());
+  
+  //  x.run(ndim, nobs, data.data(), 2, embedding.data());
+  std::cerr << " done with umap" << std::endl;
+
+  return 1;
   
   /*
   // VORONOI
@@ -324,7 +347,8 @@ static void parseRunOptions(int argc, char** argv) {
     case 'r' : arg >> opt::redfile; break;
     case 'g' : arg >> opt::greenfile; break;
     case 'b' : arg >> opt::bluefile; break;
-    case 'q' : arg >> opt::quantfile; break;            
+    case 'q' : arg >> opt::quantfile; break;
+    case 'c' : arg >> opt::threads; break;      
     case 'h' : help = true; break;
     default: die = true;
     }
@@ -342,12 +366,15 @@ static void parseRunOptions(int argc, char** argv) {
     optind++;
   }
 
-  if (! (opt::module == "gray2rgb" || opt::module == "mean" || opt::module == "csv" || opt::module == "debug") ) {
+  if (! (opt::module == "gray2rgb" || opt::module == "mean" || opt::module == "csv" || opt::module == "debug" || opt::module == "circles" || opt::module == "knn") ) {
     std::cerr << "Module " << opt::module << " not implemented" << std::endl;
     die = true;
   }
 
   if (opt::module == "gray2rgb" && argc != 4)
+    die = true;
+
+  if (opt::module == "circles" && opt::quantfile.empty())
     die = true;
   
   if (die || help) 
@@ -360,12 +387,63 @@ static void parseRunOptions(int argc, char** argv) {
     }
 }
 
+static int circles() {
+
+  // make the header
+  CellHeader header(opt::quantfile);
+
+  // this the main quant table
+  std::cerr << "...reading table" << std::endl;
+  CellTable table(opt::quantfile, &header,0);
+  
+  // open the input tiff
+  //TiffReader reader(opt::infile.c_str());
+  
+  // create a raw tiff to draw circles onto
+  TiffWriter writer(opt::outfile.c_str());
+  //writer.CopyFromReader(reader);
+
+  writer.SetTag(TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_MINISBLACK);
+  writer.SetTag(TIFFTAG_SAMPLESPERPIXEL, 1);
+  writer.SetTag(TIFFTAG_BITSPERSAMPLE, 8);  
+  
+  // scale the cell table
+  uint32_t w,h;
+  table.GetDims(w,h);
+  float scale_factor = 1000.0f / w;
+  table.scale(scale_factor);
+  
+  // get the bounds of the new table
+  table.GetDims(w,h);
+ 
+  // mode is 8
+  TiffImage circles(w, h, 8);
+  circles.setthreads(opt::threads);
+  circles.setverbose(opt::verbose);
+
+  // 
+  std::cerr << "...making circles" << std::endl;
+  circles.DrawCircles(table, 2);
+
+  writer.UpdateDims(circles);
+  writer.SetTile(0,0);
+  TIFFSetupStrips(writer.get());
+  std::cerr << " writing " << std::endl;
+  writer.Write(circles);
+
+  return 0;
+
+}
+
 static int debugfunc() {
 
   TiffReader reader(opt::infile.c_str());
 
   reader.print();
 
+  uint64_t* offsets = NULL;
+  TIFFGetField(reader.get(), TIFFTAG_STRIPOFFSETS, &offsets);
+  
   //std::cout << "...working on mean" << std::endl;
   //reader.print_means();
 
@@ -375,7 +453,7 @@ static int debugfunc() {
 
   // shrink it
   float scale_factor = 1000.0f / image.width();
-  image.Scale(scale_factor, true);
+  image.Scale(scale_factor, true, opt::threads);
   
   TiffWriter writer(opt::outfile.c_str());
   writer.CopyFromReader(reader);
@@ -415,4 +493,17 @@ static int debugfunc() {
     
   
   
+}
+
+
+int knn() {
+  // make the header
+  CellHeader header(opt::quantfile);
+
+  // this the main quant table
+  std::cerr << "...reading table" << std::endl;
+  CellTable table(opt::quantfile, &header,10000);
+
+  std::vector<double> data = table.ColumnMajor();  
+
 }

@@ -1,4 +1,5 @@
 #include "tiff_image.h"
+#include "tiff_utils.h"
 #include <cassert>
 #include <iostream>
 
@@ -109,7 +110,7 @@ double TiffImage::mean() const {
 
 }
 
-int TiffImage::Scale(double scale, bool ismode) {
+int TiffImage::Scale(double scale, bool ismode, int threads) {
 
   if (scale > 1) {
     fprintf(stderr, "Scale must be < 1\n");
@@ -130,76 +131,90 @@ int TiffImage::Scale(double scale, bool ismode) {
   uint64_t new_height = std::ceil(scale * m_height);
   uint64_t w_chunk = std::ceil(1/scale);
   uint64_t h_chunk = std::ceil(1/scale);
+
+  // store the values you see
+  std::vector<uint8_t*> sum3(3);
+  uint8_t* sum8;
+  uint64_t chunk_pixels = h_chunk * w_chunk;
   
   switch (mode) {
   case 8:
     new_image = calloc(new_width * new_height, sizeof(uint8_t));
+    sum8 = (uint8_t*)calloc(chunk_pixels, sizeof(int));    
     break;
   case 3:
     new_image = calloc(new_width * new_height, sizeof(uint8_t) * 3);
+    for (int x = 0; x < 3; x++)
+      sum3[x] = (uint8_t*)calloc(chunk_pixels, sizeof(int));
     break;
   default:
     fprintf(stderr, "not able to understand mode %d\n", mode);
     assert(false);
   }
-
-  //  std::cerr << "new dim " << new_width << " x " << new_height <<
-  //  " chunk " << w_chunk << " x " << h_chunk << std::endl;
+  
+  std::cerr << "new dim " << new_width << " x " << new_height <<
+    " chunk " << w_chunk << " x " << h_chunk << std::endl;
+  
+  size_t debugint = 0;
   
   // Iterate over the new image
+  #pragma omp parallel for num_threads(m_threads)
   for (uint64_t i = 0; i < new_height; i++) {
     for (uint64_t j = 0; j < new_width; j++) {
-      
-      // Average the pixels in the corresponding region of the original image
-      std::vector<std::vector<int>> sum;
+      ++debugint;
+      if (debugint % 10000 == 0)
+	std::cerr << " debugint " << AddCommas(debugint) << " of " << AddCommas(new_height * new_width)<< std::endl;
       size_t count = 0;
-
+      
       // loop and do the averaging
       uint64_t ii_s = std::round(static_cast<double>(i) / scale);
       uint64_t jj_s = std::round(static_cast<double>(j) / scale);
       for (uint64_t ii = ii_s; ii < ii_s + h_chunk; ii++) {
 	for (uint64_t jj = jj_s; jj < jj_s + w_chunk; jj++) {
-	  ++count;
+	  //std::cout << "OLD: " << PAIRSTRING(ii,jj) << std::endl;
 	  if (jj < m_width && ii < m_height) {
 	    switch(mode) {
 	    case 8:
-	      sum[3].push_back(static_cast<uint8_t*>(m_data)[ii * m_width + jj]);
+	      sum8[count] = static_cast<uint8_t*>(m_data)[ii * m_width + jj];
 	      break;
 	    case 3:
-	      //	      std::cerr << " sum " << sum[0] << " m_data[" << (ii * m_width + jj)*3 << "] = " << 
-		//	(unsigned int)static_cast<uint8_t*>(m_data)[(ii * m_width + jj)*3] << std::endl;
-	      sum[0].push_back(static_cast<uint8_t*>(m_data)[(ii * m_width + jj)*3    ]);
-	      sum[1].push_back(static_cast<uint8_t*>(m_data)[(ii * m_width + jj)*3 + 1]);
-	      sum[2].push_back(static_cast<uint8_t*>(m_data)[(ii * m_width + jj)*3 + 2]);
+	      for (int x = 0; x < 3; ++x) 
+		sum3[x][count] = static_cast<uint8_t*>(m_data)[(ii * m_width + jj)*3 + x];
 	      break;
 	    }
+	    ++count;
 	  }
 	}
       }
-
-      std::vector<double> sump = {0,0,0,0};
-      for (size_t x = 0; x < 4; ++i) {
-	if (ismode) {
-	  sump[x] = getMode(sum[x]);
-	} else {
-	  sump[x] = getMean(sum[x]);	  
-	}
-      }
       
-      // allocate the smaller image
+      funcmm_t mmfunc = ismode ? getMode : getMean;
+      
       switch(mode) {
       case 8:
-	static_cast<uint8_t*>(new_image)[i * new_width + j] = sump[3];
+	static_cast<uint8_t*>(new_image)[i * new_width + j] = mmfunc(sum8, count);
+	memset(sum8, 0, chunk_pixels * sizeof(uint8_t));
 	break;
       case 3:
-	static_cast<uint8_t*>(new_image)[(i * new_width + j)*3    ] = sump[0];
-	static_cast<uint8_t*>(new_image)[(i * new_width + j)*3 + 1] = sump[1];
-	static_cast<uint8_t*>(new_image)[(i * new_width + j)*3 + 2] = sump[2];
+	for (int x = 0; x < 3; ++x) {
+	  static_cast<uint8_t*>(new_image)[(i * new_width + j)*3 + x] = mmfunc(sum3[x], count);
+	  memset(sum3[x], 0, chunk_pixels * sizeof(uint8_t));
+	}
 	break;
       }
-    }
-  }
+      
+    }// end new image j
+  }// end new image i
 
+  switch(mode) {
+    case 8:
+      free(sum8);
+      break;
+  case 3:
+    for (int x = 0; x < 3; ++x)
+      free(sum3[x]);
+    break;
+  }
+  
   // transfer the data
   free(m_data);
   m_data = new_image;
@@ -207,6 +222,7 @@ int TiffImage::Scale(double scale, bool ismode) {
   m_width = new_width;
   m_height = new_height;
   m_pixels = static_cast<uint64_t>(m_width) * m_height;
+  std::cerr << "New " << PAIRSTRING(new_width, new_height) << " pixels " << m_pixels << std::endl;
   
   // set the new width and height
   /*if (!TIFFSetField(m_outtif, TIFFTAG_IMAGEWIDTH, new_width)) {
@@ -235,6 +251,9 @@ int TiffImage::__alloc() {
     std::cerr << "m_data not empty, freeing. Are you sure you want this?" << std::endl;
     free(m_data);
   }
+
+  //debug
+  //std::cerr << "m_pixels " << m_pixels << " mode " << mode << std::endl;
   
   switch (mode) {
       case 8:
@@ -242,9 +261,16 @@ int TiffImage::__alloc() {
 	//fprintf(stderr, "alloc size %f GB\n", m_pixels / 1e9);
 	break;
       case 32:
-        m_data = _TIFFmalloc(sizeof(uint32_t) * m_pixels);
+        m_data = calloc(m_pixels, sizeof(uint32_t));
 	//fprintf(stderr, "alloc size %f GB\n", m_pixels * 4 / 1e9);
 	break;
+  case 3:
+    m_data = calloc(m_pixels * 3, sizeof(uint8_t));
+    break;
+  default:
+    fprintf(stderr, "not able to understand mode %d\n", mode);
+    assert(false);
+
     }
   
   if (m_data == NULL) {
@@ -305,32 +331,68 @@ uint8_t TiffImage::GetMode() const {
   
 }
 
-int TiffImage::DrawCircles(const CellTable& table) {
+int TiffImage::DrawCircles(const CellTable& table, int radius) {
   
   // allocate the raster memory
   __alloc();
-
-  int radius = 10;
   
   std::vector<std::pair<float,float>> circle_shape = get_circle_points(radius);
-
+  
   uint64_t m_cell = 0;
+
+  #pragma omp parallel for num_threads(m_threads)
   for (const auto& c : table) {
+    //      std::cerr << c.cell_id << " - (" << c.x << "," << c.y << ")" << std::endl;
     if (m_cell % 100000 == 0 && verbose) {
-      std::cerr << "...drawing circle for cell " << AddCommas<uint64_t>(m_cell) <<std::endl;
-    }
-    m_cell++;
-    
-    for (const auto& s: circle_shape) {
-      uint64_t xpos = std::round(c.x + s.first);
-      uint64_t ypos = std::round(c.y + s.second);
-      //      std::cerr << " c.x " << c.x << " s.first " << s.first << " c.y " << c.y <<
-      //	" s.second " << s.second << " xpos " << xpos << " ypos " << ypos << std::endl;
-      if (ypos < m_height && xpos < m_width) {
-	static_cast<uint8_t*>(m_data)[ypos * m_width + xpos] = static_cast<uint8_t>(255);
+	std::cerr << "...drawing circle for cell " << AddCommas<uint64_t>(m_cell) <<std::endl;
+      }
+      m_cell++;
+      
+      for (const auto& s: circle_shape) {
+	uint64_t xpos = std::round(c.x + s.first);
+	uint64_t ypos = std::round(c.y + s.second);
+	//std::cout << " c.x " << c.x << " s.first " << s.first << " c.y " << c.y <<
+	//  " s.second " << s.second << " xpos " << xpos << " ypos " << ypos << " m_width " << m_width <<
+	//  " pixels " << m_pixels << " pos " << (ypos * m_width + xpos) << std::endl;
+	if (ypos < m_height && xpos < m_width) {
+	  static_cast<uint8_t*>(m_data)[ypos * m_width + xpos] = static_cast<uint8_t>(255);
+	}
       }
     }
-  }
-  
+
   return 0;
+}
+
+TiffImage::TiffImage(uint32_t width, uint32_t height, uint8_t mode) {
+
+  // defaults
+  m_photometric = PHOTOMETRIC_MINISBLACK;
+  m_samples_per_pixel = 1;
+  m_planar = PLANARCONFIG_CONTIG;
+
+  switch(mode) {
+  case 3:
+    m_samples_per_pixel = 3;
+    m_bits_per_sample = 8;
+    m_photometric = PHOTOMETRIC_RGB;
+    break;
+  case 8:
+    m_bits_per_sample = 8;
+    break;
+  case 16:
+    m_bits_per_sample = 16;
+    break;
+  case 32:
+    m_bits_per_sample = 32;
+    break;
+  default:
+    fprintf(stderr, "Error: unknown mode: %d\n", mode);
+    assert(false);
+  }
+
+  m_width = width;
+  m_height = height;
+  m_pixels = static_cast<uint64_t>(width) * height;
+
+  
 }

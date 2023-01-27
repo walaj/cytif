@@ -44,6 +44,11 @@ class TiffReader {
   void print();
 
   void print_means();
+
+  uint32_t width() const;
+  uint32_t height() const;
+
+  TIFF* get() const { return m_tif.get(); }
   
  private:
   

@@ -3,58 +3,53 @@
 
 #include <sstream>
 #include <cassert>
+#include <fstream>
 
 CellHeader::CellHeader(const std::string& input) {
 
-  std::stringstream ss(clean_string(input));
+  std::ifstream  file(input);
+  std::string    line;
+
+  // parse the header from the quant table
+  if (!std::getline(file, line)) {
+    std::cerr << "Error reading CSV header from " << input << std::endl;
+    assert(false);
+  }
+
+  file.close();
+
+  // search for which pattern we have
+  std::string xstring, ystring;
+  std::string cleans = clean_string(line);
+  if (cleans.find("X_centroid") != std::string::npos) {
+    xstring = "X_centroid";
+    ystring = "Y_centroid";    
+  } else if (cleans.find("Xt") != std::string::npos) {
+    xstring = "Xt";
+    ystring = "Yt";      
+  } else {
+    std::cerr << "Error: Could not find X coordinates in quant file" << std::endl;
+    assert(false);
+  }
+  
+  // read this line
+  std::stringstream ss(cleans);
   std::string f;
   size_t i = 0;
   size_t marker_index = 0;
-
-  while (std::getline(ss, f,',')) {
-    /*    std::cerr << " f " << f << " " << f.length() << std::endl;
-
-    switch (f) {
-    case: "X_centroid":
-      x = i;
-      break;
-    case: "Y_centroid":
-      y = i;
-      break;
-    case: "Area":
-      area = i;
-      break;
-    case: "Orientation":
-      ori = i;
-      break;
-    case: "MinorAxisLength":
-      min = i;
-      break;
-    case: "MajorAxisLength":
-      maj = i;
-      break;
-    case: "Eccentricty":
-      ecc = i;
-      break;
-    case: "Solidity":
-      sol = i;
-      break;
-    case: "Extent":
-      ecc = i;
-      break;
-      
-      
   
-    }
-    */    
+  while (std::getline(ss, f,',')) {
     header_map[f] = i;
     i++;
   }
 
-  /*
+  //
+  //for (auto& c : header_map)
+  //  std::cerr << c.first << " " << c.second << std::endl;
+  
   // x centroid and y centroid positions
-  x = header_map.at("X_centroid");
-  y = header_map.at("Y_centroid");      
+  x = header_map.at(xstring);
+  y = header_map.at(ystring);      
   area = header_map.at("Area");
   ori = header_map.at("Orientation");
   min = header_map.at("MinorAxisLength");
@@ -63,12 +58,11 @@ CellHeader::CellHeader(const std::string& input) {
   sol = header_map.at("Solidity");
   ext = header_map.at("Extent");
 
-  DEBUGP;
+  // must have spatial information
+  assert(header_map.find(xstring) != header_map.end());
+  assert(header_map.find(ystring) != header_map.end());  
   
-  assert(x > 0 && y > 0);
-  assert(area > 0 && ori > 0 && min > 0 && maj > 0);
-  assert(ecc > 0 && sol > 0 && ext > 0);
-  */
+  
 }
 
 // constructor from a string
@@ -82,7 +76,7 @@ Cell::Cell(const std::string& input, const CellHeader* h) {
   size_t i = 0;
 
   while (ss >> f) {
-
+    
     if (i == 0)
       cell_id = f;
     else if (i == h->x)
@@ -142,8 +136,8 @@ std::vector<double> CellTable::ColumnMajor() {
     __parse_markers();
 
   // Determine the total size of the resulting array
-  size_t num_rows = this->size();
-  size_t num_cols = m_intensity.size();
+  size_t num_rows = this->size(); // number of markers
+  size_t num_cols = m_intensity.size(); // number of cells
   
   // allocate the column major array
   std::vector<double> result(num_rows * num_cols);
@@ -167,3 +161,119 @@ size_t CellTable::NumMarkers() {
   
   return m_intensity.size();
 }
+
+CellTable CellTable::Head(size_t n) {
+
+  CellTable ct;
+
+  n = std::max(n, this->cells.size());
+  
+  ct.m_header = this->m_header;
+  ct.m_intensity = this->m_intensity;
+  ct.cells = std::vector<Cell>(this->cells.begin(), this->cells.begin() + n);
+
+  ct.__parse_markers();
+
+  return ct;
+  
+}
+
+CellTable::CellTable(const std::string& input, const CellHeader* h, int limit) {
+  m_header = h;
+
+  std::ifstream       file(input);
+  std::string         line;
+
+  // loop the table and build the CellTable
+  size_t count = 0;
+  size_t cellid = 0;
+  while (std::getline(file, line)) {
+
+    // skip first line
+    if (count == 0) {
+      count++;
+      continue;
+    }
+    count++;
+    
+    ++cellid;
+
+    if (limit > 0 && cellid > limit)
+      break;
+
+    addCell(Cell(line, h));
+
+    bool verbose= true;
+    if (cellid % 100000 == 0 && verbose)
+      std::cerr << "...reading cell " << AddCommas(static_cast<uint32_t>(cellid)) << std::endl;
+  }
+
+  file.close();
+
+  // create the matrix
+  
+}
+
+void CellTable::__create_matrix() {
+
+  m_xy = Eigen::MatrixXd(this->size(), 2);
+
+  std::set<std::string> meta = this->m_header->meta();
+  
+  // fill the matricies
+  for (size_t i = 0; i < this->size(); i++) {
+    m_xy(i, 0) = cells[i].x;
+    m_xy(i, 1) = cells[i].y;
+
+    
+  }
+
+  //   
+}
+
+
+
+
+void CellTable::scale(double factor) {
+
+  for (auto& c : cells) {
+    c.x *= factor;
+    c.y *= factor;
+  }
+  
+}
+
+void CellTable::GetDims(uint32_t &width, uint32_t &height) {
+
+  width = 0;
+  height = 0;
+  
+  for (auto& c : cells) {
+    width = std::max(width, static_cast<uint32_t>(std::ceil(c.x)));
+    height = std::max(height, static_cast<uint32_t>(std::ceil(c.y)));
+  }
+    
+}
+
+/*Cell Cell::subset(const std::set<std::string>& cols) const {
+
+  Cell out(m_header);
+  out.m_elems = std::vector<float>(out.size());
+  
+  for (const auto& c : *m_header) {
+    if (cols.find(c.first) != cols.end()) {
+      out[c.second] = 
+    }
+  }
+  
+}
+
+CellTable CellTable::subset(const std::vector<std::string>& cols) const { 
+
+  CellTable out(m_header);
+
+  for (const auto& c: cells) {
+  }
+  
+}
+*/

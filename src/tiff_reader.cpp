@@ -25,7 +25,7 @@ void TiffReader::print_means() {
 }
 
 TiffReader::TiffReader(const char* c) {
-   
+  
   m_tif = std::shared_ptr<TIFF>(TIFFOpen(c, "rm"), TIFFClose);
   
   // Open the input TIFF file
@@ -63,3 +63,18 @@ void TiffReader::print() {
 size_t TiffReader::NumDirs() const {
   return m_num_dirs;
 }
+
+
+uint32_t TiffReader::width() const {
+  uint32_t width;
+  TIFFGetField(m_tif.get(), TIFFTAG_IMAGEWIDTH, &width);
+  return width;
+}
+
+uint32_t TiffReader::height() const {
+  uint32_t height;
+  TIFFGetField(m_tif.get(), TIFFTAG_IMAGELENGTH, &height);
+  return height;
+
+}
+  

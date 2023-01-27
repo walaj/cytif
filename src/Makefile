@@ -1,16 +1,16 @@
 CC = g++
 
-TIFF = $(shell pkg-config --define-variable=prefix=/home/jaw34/software/libtiff-4.4.0 --cflags vips-cpp libtiff-4)
+TIFF = $(shell pkg-config --define-variable=prefix=/home/jaw34/software/libtiff-git --cflags vips-cpp libtiff-4)
 
-#EIGEN = -I/home/jaw34/software/eigen-3.4.0
-#KNN = -I/home/jaw34/git/knncolle/include
+EIGEN = -I/home/jaw34/software/eigen-3.4.0
+KNN = -I/home/jaw34/git/knncolle/include
 #VOR = -I/home/jaw34/git/voronoi/src
-#ARAND = -I//home/jaw34/git/aarand/include
-#UMAP =  -I/home/jaw34/git/umappp/include
-#ANNOY = -I/home/jaw34/git/annoy
-#HNSW = -I/home/jaw34/git/hnswlib
-#KMEANS = -I/home/jaw34/git/CppKmeans/include
-#IRLBA = -I/home/jaw34/git/CppIrlba/include
+ARAND = -I//home/jaw34/git/aarand/include
+UMAP =  -I/home/jaw34/git/umappp/include
+ANNOY = -I/home/jaw34/git/annoy
+HNSW = -I/home/jaw34/git/hnswlib
+KMEANS = -I/home/jaw34/git/CppKmeans/include
+IRLBA = -I/home/jaw34/git/CppIrlba/include
 
 # old
 ##RCPP = $(shell Rscript -e "Rcpp:::CxxFlags()")
@@ -26,10 +26,11 @@ PYTHONLD=-L/home/jaw34/mambaforge/envs/scimap/lib -lpython3 -lffi -lpcre
 
 ##RCPPLD = $(shell Rscript -e "Rcpp:::LdFlags()")
 ##RLD = $(shell R CMD config --ldflags)
-TIFFLD = $(shell pkg-config --define-variable=prefix=/home/jaw34/software/libtiff-4.4.0 --libs libtiff-4)
+#TIFFLD = $(shell pkg-config --define-variable=prefix=/home/jaw34/software/libtiff-git --libs libtiff-4)
+TIFFLD = -llzma /home/jaw34/software/libtiff-git/lib/libtiff.a 
 ##VIPSLD = $(shell pkg-config --libs vips-cpp)
 
-CFLAGS = -g -std=c++17 $(TIFF) $(UMAP) $(KNN) $(VOR) $(EIGEN) $(ARAND) $(IRLBA) $(HNSW) $(KMEANS) $(ANNOY) $(MATPLOTPLUS)
+CFLAGS = -g -fopenmp -std=c++17 $(TIFF) $(UMAP) $(KNN) $(VOR) $(EIGEN) $(ARAND) $(IRLBA) $(HNSW) $(KMEANS) $(ANNOY) $(MATPLOTPLUS)
 LDFLAGS = $(RCPPLD) $(TIFFLD) $(VIPSLD) $(MATPLOTPLUSLD) -ljpeg -lz -lpng
 
 # Specify the source files

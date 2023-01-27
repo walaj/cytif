@@ -24,7 +24,7 @@ class TiffWriter {
   bool isTiled();
   
   //
-  void SetTag(ttag_t tag, ...);
+  int SetTag(uint32_t tag, ...);
   
   void SetTile(int h, int w);
 
@@ -35,6 +35,10 @@ class TiffWriter {
   void CopyFromReader(const TiffReader& tr);
 
   uint8_t GetMode() const;
+  
+  void UpdateDims(const TiffImage& ti);
+
+  TIFF* get() const { return m_tif.get(); }
   
  private:
 
