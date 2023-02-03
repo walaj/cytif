@@ -30,11 +30,11 @@ PYTHONLD=-L/home/jaw34/mambaforge/envs/scimap/lib -lpython3 -lffi -lpcre
 TIFFLD = -llzma /home/jaw34/software/libtiff-git/lib/libtiff.a 
 ##VIPSLD = $(shell pkg-config --libs vips-cpp)
 
-CFLAGS = -g -fopenmp -std=c++17 $(TIFF) $(UMAP) $(KNN) $(VOR) $(EIGEN) $(ARAND) $(IRLBA) $(HNSW) $(KMEANS) $(ANNOY) $(MATPLOTPLUS)
+CFLAGS = -g -fopenmp -std=c++17 -I.. $(TIFF) $(UMAP) $(KNN) $(VOR) $(EIGEN) $(ARAND) $(IRLBA) $(HNSW) $(KMEANS) $(ANNOY) $(MATPLOTPLUS)
 LDFLAGS = $(RCPPLD) $(TIFFLD) $(VIPSLD) $(MATPLOTPLUSLD) -ljpeg -lz -lpng
 
 # Specify the source files
-SRCS = tiffo.cpp tiff_header.cpp tiff_image.cpp tiff_cp.cpp cell.cpp plot.cpp tiff_reader.cpp tiff_ifd.cpp tiff_utils.cpp tiff_writer.cpp
+SRCS = tiffo.cpp tiff_header.cpp tiff_image.cpp tiff_cp.cpp cell2.cpp plot.cpp tiff_reader.cpp tiff_ifd.cpp tiff_utils.cpp tiff_writer.cpp jsoncpp.cpp
 
 # Specify the object files
 OBJS = $(SRCS:.cpp=.o)

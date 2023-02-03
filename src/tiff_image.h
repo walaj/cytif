@@ -11,7 +11,7 @@
 #include "tiff_cp.h"
 #include "tiff_reader.h"
 #include "tiff_utils.h"
-#include "cell.h"
+#include "cell2.h"
 
 #define PIXEL_GRAY 999
 #define PIXEL_RED 0

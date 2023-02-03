@@ -332,7 +332,7 @@ uint8_t TiffImage::GetMode() const {
 }
 
 int TiffImage::DrawCircles(const CellTable& table, int radius) {
-  
+  /*  
   // allocate the raster memory
   __alloc();
   
@@ -359,7 +359,7 @@ int TiffImage::DrawCircles(const CellTable& table, int radius) {
 	}
       }
     }
-
+  */
   return 0;
 }
 

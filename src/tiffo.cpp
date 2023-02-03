@@ -17,7 +17,7 @@
 #include "tiff_cp.h"
 #include "plot.h"
 
-#include "cell.h"
+#include "cell2.h"
 
 #include "umappp/Umap.hpp"
 #include "umappp/NeighborList.hpp"
@@ -49,6 +49,7 @@ namespace opt {
   static bool verbose = false;
   static std::string infile;
   static std::string quantfile;
+  static std::string markerfile;  
   static std::string outfile;
   static std::string module;
 
@@ -67,13 +68,14 @@ namespace opt {
 
 #define JC_VORONOI_IMPLEMENTATION
 
-static const char* shortopts = "hvr:g:b:q:c:";
+static const char* shortopts = "hvr:g:b:q:c:m:";
 static const struct option longopts[] = {
   { "verbose",                    no_argument, NULL, 'v' },
   { "red",                        required_argument, NULL, 'r' },
   { "green",                      required_argument, NULL, 'g' },
   { "blue",                       required_argument, NULL, 'b' },
   { "quant-file",                 required_argument, NULL, 'q' },
+  { "marker-file",                required_argument, NULL, 'm' },  
   { "threads",                    required_argument, NULL, 'c' },
   { NULL, 0, NULL, 0 }
 };
@@ -171,12 +173,13 @@ int findmean() {
 static int csvproc() {
 
   // make the header
-  CellHeader header(opt::quantfile);
+  //CellHeader header(opt::quantfile);
 
   // this the main quant table
-  std::cerr << "...reading table" << std::endl;
-  CellTable table(opt::quantfile, &header,10000);
-  
+  //std::cerr << "...reading table" << std::endl;
+  //CellTable table(opt::quantfile, &header,10000);
+  CellTable table(opt::quantfile.c_str(), opt::markerfile.c_str());  
+
   ////////
   /// UMAP
   ////////
@@ -188,10 +191,10 @@ static int csvproc() {
   umappp::Umap x;
   //x.set_num_threads(opt::threads);
   //x.set_num_neighbors();
-  std::vector<double> data = table.ColumnMajor();
+  std::vector<double> data = {}; //table.ColumnMajor();
 
-  int ndim = table.NumMarkers();
-  int nobs = table.size();
+  int ndim = 0;//table.NumMarkers();
+  int nobs = 0;//table.size();
   
   // find K nearest neighbors
   std::cerr << "...finding K nearest-neighbors" << std::endl;  
@@ -348,6 +351,7 @@ static void parseRunOptions(int argc, char** argv) {
     case 'g' : arg >> opt::greenfile; break;
     case 'b' : arg >> opt::bluefile; break;
     case 'q' : arg >> opt::quantfile; break;
+    case 'm' : arg >> opt::markerfile; break;      
     case 'c' : arg >> opt::threads; break;      
     case 'h' : help = true; break;
     default: die = true;
@@ -389,6 +393,7 @@ static void parseRunOptions(int argc, char** argv) {
 
 static int circles() {
 
+  /*
   // make the header
   CellHeader header(opt::quantfile);
 
@@ -415,7 +420,7 @@ static int circles() {
   
   // get the bounds of the new table
   table.GetDims(w,h);
- 
+
   // mode is 8
   TiffImage circles(w, h, 8);
   circles.setthreads(opt::threads);
@@ -430,7 +435,7 @@ static int circles() {
   TIFFSetupStrips(writer.get());
   std::cerr << " writing " << std::endl;
   writer.Write(circles);
-
+  */
   return 0;
 
 }
@@ -497,6 +502,7 @@ static int debugfunc() {
 
 
 int knn() {
+  /*
   // make the header
   CellHeader header(opt::quantfile);
 
@@ -505,5 +511,7 @@ int knn() {
   CellTable table(opt::quantfile, &header,10000);
 
   std::vector<double> data = table.ColumnMajor();  
+  */
 
+  return 0;
 }
