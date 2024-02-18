@@ -86,7 +86,8 @@ static const char *RUN_USAGE_MESSAGE =
 "  gray2rgb - Convert a 3-channel gray TIFF to a single RGB\n"
 "  mean - Give the mean pixel for each channel\n"
 "  csv - <placeholder for csv processing>\n"
-"  knn - find the K-nearest neighbors\n"
+"  knn - find the K-nearest neighbors in marker space\n"
+"  spatial - Build the neighbor graph in Euclidean space\n"
   "\n";
   
 static int gray2rgb();
@@ -95,6 +96,7 @@ static int csvproc();
 static int debugfunc();
 static int circles();
 static int knn();
+static int spatial();
 static void parseRunOptions(int argc, char** argv);
 
 /*
@@ -150,6 +152,8 @@ int main(int argc, char **argv) {
     return(circles());
   } else if (opt::module == "knn") {
     return(knn());
+  } else if (opt::module == "spatial") {
+    return (spatial());
   } else {
     assert(false);
   }
@@ -184,10 +188,10 @@ static int csvproc() {
   /// UMAP
   ////////
   //  table = table.Head(100000);
-  std::cerr << "...umap on table of size " << table.size() << std::endl;
+  std::cerr << "...umap on table of size " << table.num_cells() << std::endl;
 
   // make a column
-  std::vector<double> embedding(table.size() * 2);
+  std::vector<double> embedding(table.num_cells() * 2);
   umappp::Umap x;
   //x.set_num_threads(opt::threads);
   //x.set_num_neighbors();
@@ -370,7 +374,7 @@ static void parseRunOptions(int argc, char** argv) {
     optind++;
   }
 
-  if (! (opt::module == "gray2rgb" || opt::module == "mean" || opt::module == "csv" || opt::module == "debug" || opt::module == "circles" || opt::module == "knn") ) {
+  if (! (opt::module == "gray2rgb" || opt::module == "mean" || opt::module == "csv" || opt::module == "debug" || opt::module == "circles" || opt::module == "knn" || opt::module == "spatial") ) {
     std::cerr << "Module " << opt::module << " not implemented" << std::endl;
     die = true;
   }
@@ -513,5 +517,66 @@ int knn() {
   std::vector<double> data = table.ColumnMajor();  
   */
 
+  return 0;
+}
+
+
+
+int spatial() {
+
+  std::cerr << " here " << std::endl;
+  
+  CellTable table(opt::quantfile.c_str(), opt::markerfile.c_str());    
+
+  //debug
+  //PrintMap(table.table);
+  
+  std::vector<double> xy = table.XY();
+  std::cerr << " XY size " << xy.size() << std::endl;
+
+  size_t ndim = 2;
+  size_t nobs = table.num_cells();
+  knncolle::VpTreeEuclidean<> searcher(ndim, nobs, xy.data());
+  std::cerr << "...knn on " << nobs << " cells"  << std::endl;
+  
+  umappp::NeighborList<double> output(nobs);
+
+  const int num_neighbors = 300;
+  
+  #pragma omp parallel for num_threads(opt::threads) //rparams.nthreads)  
+  for (size_t i = 0; i < nobs; ++i) {
+    output[i] = searcher.find_nearest_neighbors(i, num_neighbors);
+    
+    if (i % 20000 == 0)
+      std::cerr << " i " << AddCommas(i) << /*" thread " << omp_get_thread_num() <<*/
+	" K " << num_neighbors << std::endl;
+  }
+
+  // store it
+  std::cerr << "...writing KNN" << std::endl;
+  std::ofstream out_file;
+  out_file.open("knn.csv", std::ios::trunc); 
+
+  // Check if the file was successfully opened
+  if (!out_file.is_open()) {
+    std::cout << "Failed to open the file." << std::endl;
+    return 1;
+  }
+
+  size_t i = 0; 
+  for (auto& o : output) {
+    for (auto& n : o) {
+      
+      std::string data = std::to_string(i) + "," + std::to_string(n.first) + "," + std::to_string(n.second);
+
+            out_file << data << std::endl;
+    }
+    i++;
+  }
+
+  out_file.close();
+  
+  std::cerr << "...done with K nearest-neighbors" << std::endl;
+  
   return 0;
 }

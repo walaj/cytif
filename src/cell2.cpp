@@ -2,13 +2,27 @@
 #include <fstream>
 #include <vector>
 #include <iostream>
+#include <cassert>
 #include <cstdio>
 #include <cstring>
 #include "tiff_utils.h"
 
 #define MAX_LINE_SIZE 2048
 
+std::vector<double> CellTable::XY() const {
 
+  std::vector<double> out;
+  out.reserve(2*num_cells());
+  assert(!x.empty());
+  assert(!y.empty());
+  assert(table.at(x).size());
+  assert(table.at(y).size());  
+  out.insert(out.end(), table.at(x).begin(), table.at(x).end());
+  out.insert(out.end(), table.at(y).begin(), table.at(y).end());  
+  
+  return out;
+  
+}
 
 CellTable::CellTable(const char* file, const char* markers_file) {
 
@@ -28,11 +42,25 @@ CellTable::CellTable(const char* file, const char* markers_file) {
   std::getline(rfile, line); 
   std::istringstream header_stream(line);
   std::string header_item;
-  std::vector<std::string> keys;
   while (std::getline(header_stream, header_item, ',')) {
     table[header_item] = std::vector<float>();
   }
 
+  // read in the JSON file
+  std::string mm = std::string(markers_file);
+  JsonReader json_reader(mm);
+  json_reader.ReadData();
+
+  //debug
+  std::cerr << " JSON X " << json_reader.GetX() << " JSON Y " << json_reader.GetY() << std::endl;
+  return;
+  
+  
+  x = json_reader.GetX();
+  y = json_reader.GetY();
+  assert(!x.empty());
+  assert(!y.empty());  
+  
   size_t count = 0;
 
   // store the line
@@ -64,8 +92,8 @@ CellTable::CellTable(const char* file, const char* markers_file) {
 
   // move the values to the unordered_map
   size_t n = 0;
-  for (auto& k : keys) {
-    table[k] = vec[n++];
+  for (auto& k : table) {
+    k.second = vec[n++];
   }
   
 }

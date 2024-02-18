@@ -8,6 +8,8 @@
 #include <iomanip>
 #include <unordered_map>
 #include <numeric>
+#include <iostream>
+#include <vector>
 
 #include "tiffio.h"
 
@@ -89,4 +91,22 @@ double inline getMode(uint8_t* vec, size_t len) {
     }
     return mode;
 }
+
+void inline PrintMap(const std::unordered_map<std::string, std::vector<float>>& map) {
+    for (const auto& pair : map) {
+        std::cout << pair.first << ": [";
+        int count = 0;
+        for (const auto& value : pair.second) {
+            std::cout << value;
+            if (count < 2 && count < pair.second.size() - 1) {
+                std::cout << ", ";
+            } else if (count == 2) {
+                std::cout << ", ... ]" << std::endl;
+                break;
+            }
+            ++count;
+        }
+    }
+}
+
 #endif
