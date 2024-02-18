@@ -159,7 +159,7 @@ int tiffcp(TIFF* in, TIFF* out, bool verbose) {
 		 samplesperpixel == 1 ?
 		 PHOTOMETRIC_LOGL : PHOTOMETRIC_LOGLUV);
   else
-    CopyTag(TIFFTAG_PHOTOMETRIC, 1, TIFF_SHORT);
+    CopyTag(TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_MINISBLACK, TIFF_SHORT);
 
   // copy the fill order
   if (fillorder != 0)

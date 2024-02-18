@@ -84,6 +84,7 @@ static const char *RUN_USAGE_MESSAGE =
 "Usage: tiffo [module] <options> infile outfile\n"
 "Modules:\n"
 "  gray2rgb - Convert a 3-channel gray TIFF to a single RGB\n"
+"  colorize - Colorize select channels from a cycif tiff\n"
 "  mean - Give the mean pixel for each channel\n"
 "  csv - <placeholder for csv processing>\n"
 "  knn - find the K-nearest neighbors\n"
@@ -91,6 +92,7 @@ static const char *RUN_USAGE_MESSAGE =
   
 static int gray2rgb();
 static int findmean();
+static int colorize();
 static int csvproc();
 static int debugfunc();
 static int circles();
@@ -140,6 +142,8 @@ int main(int argc, char **argv) {
   for (int i = 0; i < argc; i++)
   if (opt::module == "gray2rgb")
     return(gray2rgb());
+  if (opt::module == "colorize")
+    return(colorize());
   else if (opt::module == "mean")
     return(findmean());
   else if (opt::module == "csv") {
@@ -329,6 +333,70 @@ static int gray2rgb() {
 }
 
 
+static int colorize() {
+
+  // open either the red channel or the 3-IFD file
+  TIFF *r_itif = TIFFOpen(opt::infile.c_str(), "rm");
+
+  // Open the output TIFF file
+  TIFF* otif = TIFFOpen(opt::outfile.c_str(), "w8");
+  if (otif == NULL) {
+    fprintf(stderr, "Error opening %s for writing\n", opt::outfile);
+    return 1;
+  }
+  
+  // copy all of the tags from in to out
+  //tiffcp(r_itif, otif, true);
+
+  std::cerr << tiffprint(r_itif) << std::endl;
+
+    std::cerr << " prior to tiff print 0"  << std::endl;
+  uint32_t tileheight, tilewidth, width, height;
+  assert(TIFFGetField(r_itif, TIFFTAG_IMAGEWIDTH, &width));
+  assert(TIFFGetField(r_itif, TIFFTAG_IMAGELENGTH, &height));
+  TIFFSetField(otif, TIFFTAG_IMAGEWIDTH, width);
+  TIFFSetField(otif, TIFFTAG_IMAGELENGTH, height);
+  TIFFSetField(otif, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
+ 
+  if (!TIFFGetField(r_itif, TIFFTAG_TILEWIDTH, &tilewidth)) {
+    std::cerr << " ERROR getting tile width " << std::endl;
+    return 1;
+  }
+  if (!TIFFGetField(r_itif, TIFFTAG_TILELENGTH, &tileheight)) {
+    std::cerr << " ERROR getting tile height " << std::endl;
+    return 1;
+  }
+
+  if (!TIFFSetField(otif, TIFFTAG_TILEWIDTH, tilewidth)) {
+    fprintf(stderr, "ERROR: unable to set tile width %ul on writer\n", tilewidth);
+    return 1;
+  }
+  if (!TIFFSetField(otif, TIFFTAG_TILELENGTH, tileheight)) {
+    fprintf(stderr, "ERROR: unable to set tile height %ul on writer\n", tileheight);
+    return 1;
+  }
+  
+  TIFFSetField(otif, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_RGB);
+  TIFFSetField(otif, TIFFTAG_SAMPLESPERPIXEL, 3);
+  TIFFSetField(otif, TIFFTAG_BITSPERSAMPLE, 1);
+  TIFFSetField(otif, TIFFTAG_COMPRESSION, COMPRESSION_NONE);
+  //TIFFSetField(otif, TIFFTAG_IMAGEDESCRIPTION, "");
+  //TIFFSetField(otif, TIFFTAG_SOFTWARE, "");
+
+  std::cerr << " prior to tiff print" << std::endl;
+  std::cerr << tiffprint(otif) << std::endl;
+  
+  // if this is a single 3 IFD file
+  std::cerr << " runnning colorize" << std::endl;
+  Colorize(r_itif, otif);
+  
+  TIFFClose(r_itif);
+  TIFFClose(otif);
+  
+  return 0;
+}
+
+
 
 // parse the command line options
 static void parseRunOptions(int argc, char** argv) {
@@ -370,7 +438,7 @@ static void parseRunOptions(int argc, char** argv) {
     optind++;
   }
 
-  if (! (opt::module == "gray2rgb" || opt::module == "mean" || opt::module == "csv" || opt::module == "debug" || opt::module == "circles" || opt::module == "knn") ) {
+  if (! (opt::module == "gray2rgb" || opt::module == "mean" || opt::module == "csv" || opt::module == "debug" || opt::module == "circles" || opt::module == "knn" || opt::module == "colorize") ) {
     std::cerr << "Module " << opt::module << " not implemented" << std::endl;
     die = true;
   }
