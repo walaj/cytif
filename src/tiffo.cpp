@@ -25,6 +25,9 @@ namespace opt {
   static std::string outfile;
   static std::string module;
 
+  static std::string palette;
+  static std::vector<int> channels;
+  
   static std::string redfile;
   static std::string greenfile;
   static std::string bluefile;
@@ -38,7 +41,7 @@ namespace opt {
     std::cerr << msg << std::endl; \
   }
 
-static const char* shortopts = "hvr:g:b:q:c:m:";
+static const char* shortopts = "hvr:g:b:q:c:m:p:C:";
 static const struct option longopts[] = {
   { "verbose",                    no_argument, NULL, 'v' },
   { "red",                        required_argument, NULL, 'r' },
@@ -47,6 +50,8 @@ static const struct option longopts[] = {
   { "quant-file",                 required_argument, NULL, 'q' },
   { "marker-file",                required_argument, NULL, 'm' },  
   { "threads",                    required_argument, NULL, 'c' },
+  { "palette",                    required_argument, NULL, 'p' },
+  { "channels",                   required_argument, NULL, 'C' },  
   { NULL, 0, NULL, 0 }
 };
 
@@ -147,21 +152,6 @@ static int gray2rgb() {
 
 
 static int colorize() {
-
-
-  ////// TIFF READER WAY
-  /*  TiffReader in_tif = TiffReader(opt::infile.c_str());
-  
-  //in_tif.print();
-
-  TiffImage out_tif(in_tif.width(), in_tif.height(), 3);
-
-  out_tif.print();
-  
-  return 0;
-  */
-
-  
   
   // open either the red channel or the 3-IFD file
   TIFF *r_itif = TIFFOpen(opt::infile.c_str(), "rm");
@@ -213,7 +203,7 @@ static int colorize() {
   //std::cerr << tiffprint(otif) << std::endl;
   
   // if this is a single 3 IFD file
-  Colorize(r_itif, otif);
+  Colorize(r_itif, otif, opt::palette, opt::channels);
   
   TIFFClose(r_itif);
   TIFFClose(otif);
@@ -242,11 +232,19 @@ static void parseRunOptions(int argc, char** argv) {
     case 'v' : opt::verbose = true; break;
     case 'r' : arg >> opt::redfile; break;
     case 'g' : arg >> opt::greenfile; break;
+    case 'p' : arg >> opt::palette; break;
     case 'b' : arg >> opt::bluefile; break;
     case 'q' : arg >> opt::quantfile; break;
     case 'm' : arg >> opt::markerfile; break;      
     case 'c' : arg >> opt::threads; break;      
     case 'h' : help = true; break;
+    case 'C' : 
+      {
+      std::string token;
+      while (std::getline(arg, token, ',')) 
+	opt::channels.push_back(std::stoi(token));
+      }
+      break;  
     default: die = true;
     }
   }

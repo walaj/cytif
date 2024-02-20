@@ -6,6 +6,16 @@ TIF=$1
 image_width=$2
 image_height=$3
 
+palette_file="$4"
+requested_channels=(${5//,/ })
+
+OUTJPG=$6 #${NEWDIR}/crop${random_number}.jpg
+
+# Validate the input
+source ${HOME}/git/wips/scripts/validate_func.sh
+magick_validate || exit 1
+palette_validate "$palette_file" || exit 1
+
 # make a tmp file name to store intermediate output
 # Generate a random temporary file name in the /tmp directory
 tmp_file=$(mktemp /tmp/wips.XXXXXX)
@@ -15,12 +25,32 @@ JPEG_QUALITY=85
 FONT="Arial"
 FONTSIZE=60
 
-# place images in one spot
-NEWDIR="cropped"
-mkdir -p ${NEWDIR}
-random_number=$((RANDOM % 90000 + 10000))
-OUTJPG=${NEWDIR}/crop${random_number}.jpg
-echo "writing to $OUTJPG"
+#####
+## PALETTE PROCESSING
+#####
+
+# Initialize indexed arrays for channels and colors
+declare -a channel_numbers channel_names channel_rgbs
+
+# Read the palette file and populate arrays
+while IFS=, read -r number name r g b lower upper; do
+    # Check if the current channel number is in the list of requested channels
+    if [[ " ${requested_channels[*]} " =~ " ${number} " ]]; then
+        # Append data to the arrays
+        channel_numbers+=("$number")
+        channel_names+=("$name")
+        channel_rgbs+=("$(printf "#%02x%02x%02x" "$r" "$g" "$b")")
+    fi
+done < <(tail -n +2 "$palette_file")  # Skip the header line
+
+# Output the channels, colors, and names as comma-delimited strings
+#echo "-crop_random:Channels:${channel_numbers[*]}" | tr ' ' ','
+#echo "-crop_random:RGBs:${channel_rgbs[*]}" | tr ' ' ','
+#echo "-crop_random:Names: ${channel_names[*]}" | tr ' ' ','
+
+#######
+#
+######
 
 # Get the dimensions of the original image
 originalWidth=$(magick identify -format "%w" ${TIF})  
@@ -35,6 +65,16 @@ y=$((RANDOM % maxY))
 
 # Perform the crop
 magick convert ${TIF} -crop ${image_width}x${image_height}+${x}+${y} ${tmp_file}
+
+# Check that we hit something...
+means=$(magick convert "$tmp_file" -format "%[fx:mean.r*100],%[fx:mean.g*100],%[fx:mean.b*100]" info:)
+IFS=',' read meanR meanG meanB <<< "$means"
+LIMIT=20
+if (( $(echo "$meanR < $LIMIT" | bc) )) && (( $(echo "$meanG < $LIMIT" | bc) )) && (( $(echo "$meanB < $LIMIT" | bc) )); then
+    echo "-crop_random.sh: Cropped to an empty region with mean RGB: $meanR, $meanG, $meanB. Skipping"
+    exit
+fi
+
 
 # convert to jpeg
 convert ${tmp_file} -quality ${JPEG_QUALITY} ${tmp_file}
@@ -68,8 +108,8 @@ text_x=$(echo "$scale_bar_x + $scale_bar_length / $text_pos_factor" | bc | cut -
 text_y=$(echo "$scale_bar_y - 20" | bc | cut -d'.' -f1) # 20 pixels above the scale bar
 
 # Echo calculations
-echo "Scale bar will be drawn from ($scale_bar_x, $scale_bar_y) to ($(($scale_bar_x + $scale_bar_length)), $(($scale_bar_y + $scale_bar_height)))"
-echo "Text will be placed at ($text_x, $text_y)"
+#echo "Scale bar will be drawn from ($scale_bar_x, $scale_bar_y) to ($(($scale_bar_x + $scale_bar_length)), $(($scale_bar_y + $scale_bar_height)))"
+#echo "Text will be placed at ($text_x, $text_y)"
 
 # Draw the scale bar and add the label
 magick ${tmp_file} \
@@ -86,20 +126,20 @@ ${tmp_file}
 rectangle_height=$(echo "$image_height * 0.1" | bc | cut -d'.' -f1)
 
 # Channels and their respective colors
-channels=("Channel1" "Channel2" "Channel3" "Channel4" "Channel5")  # Example channel names
-colors=(
-    "255,0,0"    # Red
-    "0,255,0"    # Green
-    "0,0,255"    # Blue
-    "255,255,0"  # Yellow
-    "255,165,0"  # Orange
-)
+#channels=("Channel1" "Channel2" "Channel3" "Channel4" "Channel5")  # Example channel names
+#colors=(
+#    "255,0,0"    # Red
+#    "0,255,0"    # Green
+#    "0,0,255"    # Blue
+#    "255,255,0"  # Yellow
+#    "255,165,0"  # Orange
+#)
 
 # Calculate the number of text boxes from the channels array
-num_text_boxes=${#channels[@]}
+num_text_boxes=${#channel_numbers[@]}
 
 # Verify that the number of colors matches the number of channels
-if [ ${#colors[@]} -ne $num_text_boxes ]; then
+if [ ${#channel_rgbs[@]} -ne $num_text_boxes ]; then
     echo "Error: The number of colors does not match the number of channels." >&2
     exit 1
 fi
@@ -115,8 +155,8 @@ for ((i=0; i<num_text_boxes; i++)); do
     # Calculate the center position for each text box
     center_position=$(echo "($text_spacing / 2) + ($text_spacing * $i)" | bc)
     
-    color=${colors[$i]}
-    channel=${channels[$i]}
+    color=${channel_rgbs[$i]}
+    channel=${channel_names[$i]}
     
     # Draw text
     magick convert ${tmp_file} -fill "rgb($color)" -font ${FONT} -pointsize ${FONTSIZE} \
@@ -124,4 +164,4 @@ for ((i=0; i<num_text_boxes; i++)); do
 done
 
 # Save the final image
-mv ${tmp_file} tmp.jpg #${OUTJPG}
+mv ${tmp_file} ${OUTJPG}

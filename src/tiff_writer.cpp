@@ -167,7 +167,7 @@ int TiffWriter::__tiled_write(const TiffImage& ti) const {
       // Write the tile to the TIFF file
       // this function will automatically calculate memory size from TIFF tags
       if (TIFFWriteTile(m_tif.get(), buf, x, y, 0, 0) < 0) { 
-	fprintf(stderr, "Error writing tile at (%d, %d)\n", x, y);
+	fprintf(stderr, "Error writing tile at (%llu, %llu)\n", x, y);
 	return 1;
       }
     }
@@ -219,7 +219,7 @@ int TiffWriter::__lined_write(const TiffImage& ti) const {
     // this should be really clean because it doesn't make me guess the
     // number of bytes per pixel to deal with
     if (TIFFWriteScanline(m_tif.get(), static_cast<uint8_t*>(ti.m_data) + y * ls, y, 0) < 0) {
-      fprintf(stderr, "Error writing line row %ul\n", y);
+      fprintf(stderr, "Error writing line row %llu\n", y);
       return 1;
     }
     

@@ -9,33 +9,10 @@ current_height=0
 output_image="output_palette.png"
 FONT=Arial
 
-# Check if "magick" command is available
-if ! command -v magick &> /dev/null; then
-    echo "Error: ImageMagick ('magick' command) is not installed or not in the PATH."
-    exit 1
-fi
-
-# Check if input file is provided and exists
-if [ -z "$1" ] || [ ! -f "$1" ]; then
-    echo "Error: Input file not provided or does not exist."
-    exit 1
-fi
-
-# Read the header and validate it
-header=$(head -1 "$1")
-expected_header="number,name,r,g,b,lower,upper"
-if [ "$header" != "$expected_header" ]; then
-    echo "Error: Input file header does not match expected format."
-    exit 1
-fi
-
-# Validate each line for correct number of elements
-while IFS=, read -r number name r g b lower upper; do
-    if [ -z "$upper" ] || [ ! -z "$(cut -d',' -f8- <<<"$REPLY")" ]; then
-        echo "Error: Line does not have the correct number of elements: $REPLY"
-        exit 1
-    fi
-done < <(tail -n +2 "$1")  # Skip header line
+# Validate the input
+source ${HOME}/git/wips/scripts/validate_func.sh
+magick_validate || exit 1
+palette_validate "$1" || exit 1
 
 # Read the palette file and skip the header line
 tail -n +2 "$1" | while IFS=, read -r number name r g b lower upper

@@ -1,44 +1,14 @@
 #include "tiff_utils.h"
 #include <cassert>
 #include <iostream>
+#include <fstream>
+#include <iostream>
+#include <sstream>
 
 #include <algorithm> // for std::min and std::max
 #include <cstdint>   // for uint16_t and uint8_t
 
-
-// Define a struct to hold RGB color values
-struct RGBColor {
-    uint8_t r, g, b;
-
-    // Default constructor
-    RGBColor(uint8_t red = 0, uint8_t green = 0, uint8_t blue = 0) : r(red), g(green), b(blue) {}
-  
-    
-};
-
-// Overload the << operator for RGBColor
-std::ostream& operator<<(std::ostream& os, const RGBColor& color) {
-    return os << "RGB(" << static_cast<int>(color.r) << ", " << static_cast<int>(color.g) << ", " << static_cast<int>(color.b) << ")";
-}
-
-// Define a struct to represent a channel with its associated properties
-struct Channel {
-    int channelNumber; // Channel identifier
-    RGBColor color; // RGB color associated with this channel
-    uint16_t lowerBound; // Lower bound for windowing
-    uint16_t upperBound; // Upper bound for windowing
-
-    // Constructor to initialize the Channel
-    Channel(int num, RGBColor col, uint16_t lower, uint16_t upper)
-        : channelNumber(num), color(col), lowerBound(lower), upperBound(upper) {}
-};
-
-// Overload the << operator for Channel
-std::ostream& operator<<(std::ostream& os, const Channel& channel) {
-    os << "Channel Number: " << channel.channelNumber << ", Color: " << channel.color
-       << ", Lower Bound: " << channel.lowerBound << ", Upper Bound: " << channel.upperBound;
-    return os;
-}
+#include "channel.h"
 
 uint8_t affineTransformUint8(uint64_t value, uint64_t A, uint64_t B) {
   
@@ -130,7 +100,8 @@ static void __gray8assert(TIFF* in) {
   
 }
 
-int Colorize(TIFF* in, TIFF* out) {
+int Colorize(TIFF* in, TIFF* out, const std::string& palette_file,
+	     const std::vector<int>& channels_to_run) {
   
   TIFFSetDirectory(in, 0);
 
@@ -149,7 +120,55 @@ int Colorize(TIFF* in, TIFF* out) {
 
   // display number of directories / channels
   int num_dir = TIFFNumberOfDirectories(in);
-  std::cerr << "Channels: " << num_dir << std::endl;
+  std::cerr << "Number of channels in image: " << num_dir << std::endl;
+
+  ////// READ THE PALETTE
+  ChannelVector channels;
+  std::ifstream file(palette_file);
+  std::string line; 
+  std::vector<std::string> headerItems; 
+  while (std::getline(file, line)) {
+
+    std::stringstream ss(line);
+    std::string item;
+    std::vector<std::string> headerItems;
+    
+    // Split the header line into parts based on comma
+    while (std::getline(ss, item, ',')) {
+      headerItems.push_back(item);
+    }
+
+    // Check if the header has exactly 7 elements
+    if (headerItems.size() != 7) {
+      std::cerr << "Error: The header does not contain exactly 7 elements." << std::endl;
+      return -1; 
+    }
+
+    // read the actual channel information
+    while (std::getline(file, line)) {
+      if (!line.empty()) {
+	channels.emplace_back(line); 
+      }
+    }
+  }
+
+  // error checking
+  int channel_max = *std::max_element(channels_to_run.begin(), channels_to_run.end());
+  if (channel_max >= channels.size()) {
+    fprintf(stderr, "Error: Max channel %d is larger than number of channels in the palette %zu\n", channel_max, channels.size());
+    return -1;
+  }
+
+  // error checking
+  if (num_dir <= channel_max) {
+    fprintf(stderr, "Error: Max channel %d is larger than number of channels in the image %d\n", channel_max, num_dir);
+    return -1;
+  }
+  
+  // print
+  for (const auto& i : channels_to_run)
+    //std::cerr << "Channel number: " << i << " channel size " << channels.size() << std::endl;
+    std::cerr << "Channel: " << channels.at(i) << std::endl;
   
   TIFFSetDirectory(in, 0);
   if (TIFFIsTiled(in)) {
@@ -173,9 +192,6 @@ int Colorize(TIFF* in, TIFF* out) {
       assert(TIFFTileSize(in) == ts);
     }
 
-    // which channels to run
-    std::vector<int> channels_to_run = {0,11,15,16,18};
-    
     // allocate memory for a single tile
     uint16_t** channels = allocateChannels(channels_to_run.size(), ts / 2);
 
@@ -190,35 +206,32 @@ int Colorize(TIFF* in, TIFF* out) {
     // example
     const std::vector<Channel> channel_vec=
       {
-	{Channel(0,  RGBColor(56, 108,176), 2000, 10000)}, // Hoechst (blue)
-	{Channel(1,  RGBColor(0,0,0),1000,2000)}, // dummy
-	{Channel(2,  RGBColor(0,0,0),1000,2000)}, // dummy
-	{Channel(3,  RGBColor(0,0,0),1000,2000)}, // dummy
-	{Channel(4,  RGBColor(0,0,0),1000,2000)}, // dummy
-	{Channel(5,  RGBColor(0,0,0),1000,2000)}, // dummy
-	{Channel(6,  RGBColor(190,174,212), 400, 1000)},   // CD20 (purple)
-	{Channel(7,  RGBColor(253,192,134), 400, 1000)},   // CD4 (orange)
-	{Channel(8,  RGBColor(77 ,175, 74), 500, 1000)},   // CD8 (green) 
-	{Channel(9,  RGBColor(0,0,0),1000,2000)}, // dummy
-	{Channel(10, RGBColor(0,0,0),1000,2000)}, // dummy
-	{Channel(11, RGBColor(255,0 ,255),500,4000)}, // CD3 (pink)
-	{Channel(12, RGBColor(0,0,0),1000,2000)}, // dummy
-	{Channel(13, RGBColor(0,0,0),1000,2000)}, // dummy
-	{Channel(14, RGBColor(0,0,0),1000,2000)}, // dummy
-	{Channel(15, RGBColor(255,0,0),400,4000)}, // CD45 (red)
-	{Channel(16, RGBColor(255,255,255), 400, 5000)},   // PanCK (white)
-	{Channel(17, RGBColor(0,0,0),1000,2000)}, // dummy			
-	{Channel(18, RGBColor(255,255,0), 400, 1000)},   // SMA (yellow)
-	{Channel(19, RGBColor(0,0,0),1000,2000)}, // dummy			
+	{Channel(0, "", RGBColor(56, 108,176), 2000, 10000)}, // Hoechst (blue)
+	{Channel(1, "", RGBColor(0,0,0),1000,2000)}, // dummy
+	{Channel(2, "", RGBColor(0,0,0),1000,2000)}, // dummy
+	{Channel(3, "", RGBColor(0,0,0),1000,2000)}, // dummy
+	{Channel(4, "", RGBColor(0,0,0),1000,2000)}, // dummy
+	{Channel(5, "", RGBColor(0,0,0),1000,2000)}, // dummy
+	{Channel(6,  "",RGBColor(190,174,212), 400, 1000)},   // CD20 (purple)
+	{Channel(7, "", RGBColor(253,192,134), 400, 1000)},   // CD4 (orange)
+	{Channel(8, "", RGBColor(77 ,175, 74), 500, 1000)},   // CD8 (green) 
+	{Channel(9,  "",RGBColor(0,0,0),1000,2000)}, // dummy
+	{Channel(10, "",RGBColor(0,0,0),1000,2000)}, // dummy
+	{Channel(11, "",RGBColor(255,0 ,255),500,4000)}, // CD3 (pink)
+	{Channel(12, "",RGBColor(0,0,0),1000,2000)}, // dummy
+	{Channel(13, "",RGBColor(0,0,0),1000,2000)}, // dummy
+	{Channel(14, "",RGBColor(0,0,0),1000,2000)}, // dummy
+	{Channel(15, "",RGBColor(255,0,0),400,4000)}, // CD45 (red)
+	{Channel(16, "",RGBColor(255,255,255), 400, 5000)},   // PanCK (white)
+	{Channel(17, "",RGBColor(0,0,0),1000,2000)}, // dummy			
+	{Channel(18, "",RGBColor(255,255,0), 400, 1000)},   // SMA (yellow)
+	{Channel(19, "",RGBColor(0,0,0),1000,2000)}, // dummy			
       };
 
     std::vector<Channel> channels_to_run_map;
     for (auto n : channels_to_run)
       channels_to_run_map.push_back(channel_vec[n]);
 
-    // test
-    std::cerr << " pan 600, cd3 5000 " << combineChannelsToRGB({5000,400},{channel_vec[11],channel_vec[16]}) << std::endl;
-    
     // storage for pixel values
     std::vector<uint16_t> pixel_values;
     pixel_values.resize(channels_to_run.size());
