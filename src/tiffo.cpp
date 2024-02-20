@@ -15,7 +15,6 @@
 #include "tiff_reader.h"
 #include "tiff_writer.h"
 #include "tiff_cp.h"
-#include "plot.h"
 
 namespace opt {
   static bool verbose = false;
