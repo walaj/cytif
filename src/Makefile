@@ -10,6 +10,7 @@ else
     OPENMP = -fopenmp
     LSTD =
     LIBTIFFHOME=/home/jaw34/software/libtiff-4.4.0
+    CC=g++
 endif   
 
 #TIFF = $(shell pkg-config --define-variable=prefix=/home/jaw34/software/libtiff-git --cflags libtiff-4)
