@@ -5,13 +5,15 @@ COMPILER_TYPE := $(shell $(CC) --version)
 ifneq (,$(findstring clang,$(COMPILER_TYPE)))                                                                                                                    
     OPENMP = -Xpreprocessor -fopenmp
     LSTD = -lc++
-else                                                                                                                                                             
+else
     OPENMP = -fopenmp
     LSTD = 
 endif   
 
 #TIFF = $(shell pkg-config --define-variable=prefix=/home/jaw34/software/libtiff-git --cflags libtiff-4)
-TIFF = -I$(HOME)/software/libtiff-git/include
+#TIFF = -I$(HOME)/git/libtiff/libtiff
+#TIFF = -I$(HOME)/git/libtiff/includesoftware/libtiff-git/include
+TIFF=-I$(HOME)/software/libtiff-4.6.0/include
 
 #JPEG = -L/opt/homebrew/opt/jpeg/lib -L/opt/homebrew/Cellar/libpng/1.6.39/lib
 
@@ -21,9 +23,11 @@ TIFF = -I$(HOME)/software/libtiff-git/include
 ##PYTHON=$(shell pkg-config --cflags python3)
 
 #TIFFLD = $(shell pkg-config --define-variable=prefix=$(HOME)/software/libtiff-git --libs libtiff-4)
-TIFFLD = -llzma $(HOME)/software/libtiff-git/lib/libtiff.a
+#TIFFLD = -llzma $(HOME)/software/libtiff-git/lib/libtiff.a
+#TIFFLD = -llzma $(HOME)/git/libtiff/libtiff/libtiff.la
+TIFFLD=-llzma -L$(HOME)/software/libtiff-4.6.0/lib -ltiff
 
-CFLAGS = -g $(OPENMP) -std=c++17 -I.. $(TIFF) 
+CFLAGS = -g -std=c++17 -I.. $(TIFF) 
 LDFLAGS = $(TIFFLD) $(JPEG) -lz $(LSTD)
 
 # Specify the source files

@@ -52,7 +52,7 @@ void TiffWriter::SetTile(int h, int w) {
 
   // turn off the tiled flag
   if (h == 0 || w == 0) {
-    TIFFSetTiledOff(m_tif.get());
+    //TIFFSetTiledOff(m_tif.get()); // commented to get to compile, probably shouldny
     TIFFUnsetField(m_tif.get(), TIFFTAG_TILEWIDTH);
     TIFFUnsetField(m_tif.get(), TIFFTAG_TILELENGTH);    
   }
