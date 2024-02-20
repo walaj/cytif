@@ -37,17 +37,17 @@ TiffReader::TiffReader(const char* c) {
   // set the number of directories
   m_num_dirs = TIFFNumberOfDirectories(m_tif.get());
 
-   // set the filename
-   m_filename = std::string(c);
-
-   // set the IFDs
-   for (size_t i = 0; i < m_num_dirs; i++) {
-     TIFFSetDirectory(m_tif.get(), i);
-     m_ifds.push_back(TiffIFD(m_tif.get()));
-   }
-   TIFFSetDirectory(m_tif.get(), 0);
-   
- }
+  // set the filename
+  m_filename = std::string(c);
+  
+  // set the IFDs
+  for (size_t i = 0; i < m_num_dirs; i++) {
+    TIFFSetDirectory(m_tif.get(), i);
+    m_ifds.push_back(TiffIFD(m_tif.get()));
+  }
+  TIFFSetDirectory(m_tif.get(), 0);
+  
+}
 
 void TiffReader::print() {
 

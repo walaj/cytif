@@ -18,6 +18,7 @@ using funcmm_t = double (*)(uint8_t*, size_t); // mean vs mode function object
 #define PAIRSTRING(X_, Y_) "(" + std::to_string(X_) + ", " + std::to_string(Y_) +  ")"
 
 int MergeGrayToRGB(TIFF* in, TIFF* out);
+int Colorize(TIFF* in, TIFF* out);
 
 static int cnt = 0; 
 #define DEBUGP do { std::cerr << "DEBUGP: " << cnt++ << std::endl; } while(0)

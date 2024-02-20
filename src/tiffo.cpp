@@ -17,34 +17,6 @@
 #include "tiff_cp.h"
 #include "plot.h"
 
-#include "cell2.h"
-
-#include "umappp/Umap.hpp"
-#include "umappp/NeighborList.hpp"
-#include "umappp/combine_neighbor_sets.hpp"
-#include "umappp/find_ab.hpp"
-#include "umappp/neighbor_similarities.hpp"
-#include "umappp/optimize_layout.hpp"
-#include "umappp/spectral_init.hpp"
-#include "knncolle/knncolle.hpp"
-
-/*
-#define myascii(c) (((c) & ~0x7f) == 0)
-
-// I wrapped it in a library because it spams too many warnings
-extern int wrap_stbi_write_png(char const *filename, int w, int h, int comp, const void *data, int stride_in_bytes);
-
-#define JC_VORONOI_IMPLEMENTATION
-// If you wish to use doubles
-//#define JCV_REAL_TYPE double
-//#define JCV_FABS fabs
-//#define JCV_ATAN2 atan2
-#include "jc_voronoi.h"
-
-#define JC_VORONOI_CLIP_IMPLEMENTATION
-#include "jc_voronoi_clip.h"
-*/
-
 namespace opt {
   static bool verbose = false;
   static std::string infile;
@@ -66,8 +38,6 @@ namespace opt {
     std::cerr << msg << std::endl; \
   }
 
-#define JC_VORONOI_IMPLEMENTATION
-
 static const char* shortopts = "hvr:g:b:q:c:m:";
 static const struct option longopts[] = {
   { "verbose",                    no_argument, NULL, 'v' },
@@ -84,19 +54,15 @@ static const char *RUN_USAGE_MESSAGE =
 "Usage: tiffo [module] <options> infile outfile\n"
 "Modules:\n"
 "  gray2rgb - Convert a 3-channel gray TIFF to a single RGB\n"
+"  colorize - Colorize select channels from a cycif tiff\n"
 "  mean - Give the mean pixel for each channel\n"
 "  csv - <placeholder for csv processing>\n"
-"  knn - find the K-nearest neighbors in marker space\n"
-"  spatial - Build the neighbor graph in Euclidean space\n"
   "\n";
   
 static int gray2rgb();
 static int findmean();
-static int csvproc();
+static int colorize();
 static int debugfunc();
-static int circles();
-static int knn();
-static int spatial();
 static void parseRunOptions(int argc, char** argv);
 
 /*
@@ -113,20 +79,6 @@ typedef	uint32 toff_t;		// file offset
 
  */
 
-static TIFF* tiffload(const char* file, const std::string &mode) {
-
-  // read in the TIFF
-  TIFF* tif = TIFFOpen(file, mode.c_str());
-
-  if (tif == NULL || tif == 0) {
-    fprintf(stderr, "Unable to open tif: %s\n", file);
-    return NULL;
-  }
-  
-  return tif;;
-  
-}
-
 int main(int argc, char **argv) {
   
   // Check if a command line argument was provided
@@ -139,25 +91,17 @@ int main(int argc, char **argv) {
   parseRunOptions(argc, argv);
   
   // get the module
-  for (int i = 0; i < argc; i++)
-  if (opt::module == "gray2rgb")
+  if (opt::module == "gray2rgb") {
     return(gray2rgb());
-  else if (opt::module == "mean")
+  } else if (opt::module == "colorize") {
+    return(colorize());
+  } else if (opt::module == "mean") {
     return(findmean());
-  else if (opt::module == "csv") {
-    return(csvproc());
   } else if (opt::module == "debug") {
     return(debugfunc());
-  } else if (opt::module == "circles") {
-    return(circles());
-  } else if (opt::module == "knn") {
-    return(knn());
-  } else if (opt::module == "spatial") {
-    return (spatial());
   } else {
     assert(false);
   }
-
   return 1;
 }
 
@@ -174,137 +118,6 @@ int findmean() {
   return 0;
 }
 
-static int csvproc() {
-
-  // make the header
-  //CellHeader header(opt::quantfile);
-
-  // this the main quant table
-  //std::cerr << "...reading table" << std::endl;
-  //CellTable table(opt::quantfile, &header,10000);
-  CellTable table(opt::quantfile.c_str(), opt::markerfile.c_str());  
-
-  ////////
-  /// UMAP
-  ////////
-  //  table = table.Head(100000);
-  std::cerr << "...umap on table of size " << table.num_cells() << std::endl;
-
-  // make a column
-  std::vector<double> embedding(table.num_cells() * 2);
-  umappp::Umap x;
-  //x.set_num_threads(opt::threads);
-  //x.set_num_neighbors();
-  std::vector<double> data = {}; //table.ColumnMajor();
-
-  int ndim = 0;//table.NumMarkers();
-  int nobs = 0;//table.size();
-  
-  // find K nearest neighbors
-  std::cerr << "...finding K nearest-neighbors" << std::endl;  
-  int num_neighbors = 300;
-  
-  knncolle::AnnoyEuclidean<> searcher(ndim, nobs, data.data());
-  const size_t N = nobs; //searcher->nobs();
-  umappp::NeighborList<double> output(N);
-#pragma omp parallel for num_threads(opt::threads) //rparams.nthreads)
-  for (size_t i = 0; i < N; ++i) {
-    if (i % 20000 == 0)
-      std::cerr << " i " << AddCommas(i) << " thread " << omp_get_thread_num() << " K " << num_neighbors << std::endl;
-    output[i] = searcher.find_nearest_neighbors(i, num_neighbors);
-  }
-
-  // store it
-  std::cerr << "...writing KNN" << std::endl;
-  std::ofstream out_file;
-  out_file.open("knn.annoy.csv", std::ios::trunc); 
-
-  // Check if the file was successfully opened
-  if (!out_file.is_open()) {
-    std::cout << "Failed to open the file." << std::endl;
-    return 1;
-  }
-  
-  size_t i = 0; 
-  for (auto& o : output) {
-    for (auto& n : o) {
-
-      std::string data = std::to_string(i) + "," + std::to_string(n.first) + "," + std::to_string(n.second);
-      
-      // Compress the data
-      /*      uLongf compressed_length = compressBound(data.size());
-      std::unique_ptr<Bytef[]> compressed_data(new Bytef[compressed_length]);
-      compress(compressed_data.get(), &compressed_length, (const Bytef*)data.c_str(), data.size());
-      
-      // Write the compressed data to the file
-      out_file.write((const char*)compressed_data.get(), compressed_length);
-      */
-      out_file << data << std::endl;
-    }
-    i++;
-  }
-
-  out_file.close();
-  
-  std::cerr << "...done with K nearest-neighbors" << std::endl;
-
-
-  return 1;
-  //initialize(std::move(output), ndim, embedding);
-  //auto status = umappp::initialize(ndim, nobs, data.data(), 2, embedding.data());
-  //return 1;
-
-  x.run(&searcher, 2, embedding.data());
-  
-  //  x.run(ndim, nobs, data.data(), 2, embedding.data());
-  std::cerr << " done with umap" << std::endl;
-
-  return 1;
-  
-  /*
-  // VORONOI
-  int NPOINT = 10;
-  int i;
-  jcv_rect bounding_box = { { 0.0f, 0.0f }, { 1.0f, 1.0f } };
-  jcv_diagram diagram;
-  jcv_point points[NPOINT];
-  const jcv_site* sites;
-  jcv_graphedge* graph_edge;
-  
-  memset(&diagram, 0, sizeof(jcv_diagram));
-
-  srand(0);
-  for (i=0; i<NPOINT; i++) {
-    points[i].x = ((float)rand()/(1.0f + (float)RAND_MAX));
-    points[i].y = ((float)rand()/(1.0f + (float)RAND_MAX));
-  }
-
-  printf("# Seed sites\n");
-  for (i=0; i<NPOINT; i++) {
-    printf("%f %f\n", (double)points[i].x, (double)points[i].y);
-  }
-
-  jcv_diagram_generate(NPOINT, (const jcv_point *)points, &bounding_box, (const jcv_clipper*)0, &diagram);
-
-  printf("# Edges\n");
-  sites = jcv_diagram_get_sites(&diagram);
-  for (i=0; i<diagram.numsites; i++) {
-
-    graph_edge = sites[i].edges;
-    while (graph_edge) {
-      // This approach will potentially print shared edges twice
-      printf("%f %f\n", (double)graph_edge->pos[0].x, (double)graph_edge->pos[0].y);
-      printf("%f %f\n", (double)graph_edge->pos[1].x, (double)graph_edge->pos[1].y);
-      graph_edge = graph_edge->next;
-    }
-  }
-
-  jcv_diagram_free(&diagram);
-  */
-  
-  return 0;
-}
-
 static int gray2rgb() {
 
   // open either the red channel or the 3-IFD file
@@ -313,7 +126,7 @@ static int gray2rgb() {
   // Open the output TIFF file
   TIFF* otif = TIFFOpen(opt::outfile.c_str(), "w8");
   if (otif == NULL) {
-    fprintf(stderr, "Error opening %s for writing\n", opt::outfile);
+    fprintf(stderr, "Error opening %s for writing\n", opt::outfile.c_str());
     return 1;
   }
   
@@ -325,6 +138,82 @@ static int gray2rgb() {
 
   // if this is a single 3 IFD file
   MergeGrayToRGB(r_itif, otif);
+  
+  TIFFClose(r_itif);
+  TIFFClose(otif);
+  
+  return 0;
+}
+
+
+static int colorize() {
+
+
+  ////// TIFF READER WAY
+  /*  TiffReader in_tif = TiffReader(opt::infile.c_str());
+  
+  //in_tif.print();
+
+  TiffImage out_tif(in_tif.width(), in_tif.height(), 3);
+
+  out_tif.print();
+  
+  return 0;
+  */
+
+  
+  
+  // open either the red channel or the 3-IFD file
+  TIFF *r_itif = TIFFOpen(opt::infile.c_str(), "rm");
+
+  // Open the output TIFF file
+  TIFF* otif = TIFFOpen(opt::outfile.c_str(), "w8");
+  if (otif == NULL) {
+    fprintf(stderr, "Error opening %s for writing\n", opt::outfile.c_str());
+    return 1;
+  }
+  
+  // copy all of the tags from in to out
+  //tiffcp(r_itif, otif, true);
+
+  //std::cerr << tiffprint(r_itif) << std::endl;
+
+  uint32_t tileheight, tilewidth, width, height;
+  assert(TIFFGetField(r_itif, TIFFTAG_IMAGEWIDTH, &width));
+  assert(TIFFGetField(r_itif, TIFFTAG_IMAGELENGTH, &height));
+  TIFFSetField(otif, TIFFTAG_IMAGEWIDTH, width);
+  TIFFSetField(otif, TIFFTAG_IMAGELENGTH, height);
+  TIFFSetField(otif, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
+ 
+  if (!TIFFGetField(r_itif, TIFFTAG_TILEWIDTH, &tilewidth)) {
+    std::cerr << " ERROR getting tile width " << std::endl;
+    return 1;
+  }
+  if (!TIFFGetField(r_itif, TIFFTAG_TILELENGTH, &tileheight)) {
+    std::cerr << " ERROR getting tile height " << std::endl;
+    return 1;
+  }
+
+  if (!TIFFSetField(otif, TIFFTAG_TILEWIDTH, tilewidth)) {
+    fprintf(stderr, "ERROR: unable to set tile width %ul on writer\n", tilewidth);
+    return 1;
+  }
+  if (!TIFFSetField(otif, TIFFTAG_TILELENGTH, tileheight)) {
+    fprintf(stderr, "ERROR: unable to set tile height %ul on writer\n", tileheight);
+    return 1;
+  }
+  
+  TIFFSetField(otif, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_RGB);
+  TIFFSetField(otif, TIFFTAG_SAMPLESPERPIXEL, 3);
+  TIFFSetField(otif, TIFFTAG_BITSPERSAMPLE, 8);
+  TIFFSetField(otif, TIFFTAG_COMPRESSION, COMPRESSION_NONE);
+  //TIFFSetField(otif, TIFFTAG_IMAGEDESCRIPTION, "");
+  //TIFFSetField(otif, TIFFTAG_SOFTWARE, "");
+
+  //std::cerr << tiffprint(otif) << std::endl;
+  
+  // if this is a single 3 IFD file
+  Colorize(r_itif, otif);
   
   TIFFClose(r_itif);
   TIFFClose(otif);
@@ -374,7 +263,7 @@ static void parseRunOptions(int argc, char** argv) {
     optind++;
   }
 
-  if (! (opt::module == "gray2rgb" || opt::module == "mean" || opt::module == "csv" || opt::module == "debug" || opt::module == "circles" || opt::module == "knn" || opt::module == "spatial") ) {
+  if (! (opt::module == "gray2rgb" || opt::module == "mean" || opt::module == "csv" || opt::module == "debug" || opt::module == "circles" || opt::module == "knn" || opt::module == "colorize") ) {
     std::cerr << "Module " << opt::module << " not implemented" << std::endl;
     die = true;
   }
@@ -445,7 +334,7 @@ static int circles() {
 }
 
 static int debugfunc() {
-
+  /*
   TiffReader reader(opt::infile.c_str());
 
   reader.print();
@@ -473,7 +362,7 @@ static int debugfunc() {
   
   //myplot();
   return 1;
-  
+*/  
   /* std::cerr << " opening file " << opt::infile << std::endl;
   TIFF* in = TIFFOpen(opt::infile.c_str(), "rm");
 
@@ -517,66 +406,5 @@ int knn() {
   std::vector<double> data = table.ColumnMajor();  
   */
 
-  return 0;
-}
-
-
-
-int spatial() {
-
-  std::cerr << " here " << std::endl;
-  
-  CellTable table(opt::quantfile.c_str(), opt::markerfile.c_str());    
-
-  //debug
-  //PrintMap(table.table);
-  
-  std::vector<double> xy = table.XY();
-  std::cerr << " XY size " << xy.size() << std::endl;
-
-  size_t ndim = 2;
-  size_t nobs = table.num_cells();
-  knncolle::VpTreeEuclidean<> searcher(ndim, nobs, xy.data());
-  std::cerr << "...knn on " << nobs << " cells"  << std::endl;
-  
-  umappp::NeighborList<double> output(nobs);
-
-  const int num_neighbors = 300;
-  
-  #pragma omp parallel for num_threads(opt::threads) //rparams.nthreads)  
-  for (size_t i = 0; i < nobs; ++i) {
-    output[i] = searcher.find_nearest_neighbors(i, num_neighbors);
-    
-    if (i % 20000 == 0)
-      std::cerr << " i " << AddCommas(i) << /*" thread " << omp_get_thread_num() <<*/
-	" K " << num_neighbors << std::endl;
-  }
-
-  // store it
-  std::cerr << "...writing KNN" << std::endl;
-  std::ofstream out_file;
-  out_file.open("knn.csv", std::ios::trunc); 
-
-  // Check if the file was successfully opened
-  if (!out_file.is_open()) {
-    std::cout << "Failed to open the file." << std::endl;
-    return 1;
-  }
-
-  size_t i = 0; 
-  for (auto& o : output) {
-    for (auto& n : o) {
-      
-      std::string data = std::to_string(i) + "," + std::to_string(n.first) + "," + std::to_string(n.second);
-
-            out_file << data << std::endl;
-    }
-    i++;
-  }
-
-  out_file.close();
-  
-  std::cerr << "...done with K nearest-neighbors" << std::endl;
-  
   return 0;
 }

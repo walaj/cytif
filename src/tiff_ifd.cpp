@@ -31,7 +31,7 @@ void TiffIFD::__get_tag(int tag, T& value) {
   return out;
   }*/
 
-void TiffIFD::print() {
+void TiffIFD::print() const {
 
   // store it and then move it back. Kludgy
   uint16_t cur_dir = TIFFCurrentDirectory(m_tif);
@@ -102,7 +102,7 @@ TiffIFD::TiffIFD(TIFF* tif) {
   char emsg[1024];
   int rgba_ok = TIFFRGBAImageOK(m_tif, emsg);
   if (!rgba_ok) {
-    fprintf(stderr, emsg);
+    fprintf(stderr, "%s", emsg);
   }
 
   
@@ -205,7 +205,7 @@ std::vector<double> TiffIFD::mean() {
 
 	    // Read the line
 	    if (TIFFReadScanline(m_tif, buf, y) < 0) {
-	      fprintf(stderr, "Error reading line at row %ul\n", y);
+	      fprintf(stderr, "Error reading line at row %llu\n", y);
 	      return {-1};
 	    }
 	    
@@ -291,7 +291,7 @@ void* TiffIFD::__alloc() {
 	//fprintf(stderr, "alloc size %f GB\n", m_pixels * 4 / 1e9);
 	break;
   default:
-    fprintf(stderr, "mode not recognized: %d\n", mode);
+    fprintf(stderr, "mode not recognized: %zu\n", mode);
     assert(false);
     }
   
@@ -302,6 +302,7 @@ void* TiffIFD::__alloc() {
   
   return data;
 }
+
 
 
 void* TiffIFD::__tiled_read() {
@@ -329,7 +330,7 @@ void* TiffIFD::__tiled_read() {
       
       // Read the tile
       if (TIFFReadTile(m_tif, tile, x, y, 0, 0) < 0) {
-	fprintf(stderr, "Error reading tile at (%d, %d)\n", x, y);
+	fprintf(stderr, "Error reading tile at (%llu, %llu)\n", x, y);
 	return NULL;
       }
 
@@ -406,7 +407,7 @@ void* TiffIFD::__lined_read() {
 
     // Read the line
     if (TIFFReadScanline(m_tif, buf, y) < 0) {
-      fprintf(stderr, "Error reading line at row %ul\n", y);
+      fprintf(stderr, "Error reading line at row %llu\n", y);
       return NULL;
     }
 

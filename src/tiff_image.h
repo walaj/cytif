@@ -11,7 +11,6 @@
 #include "tiff_cp.h"
 #include "tiff_reader.h"
 #include "tiff_utils.h"
-#include "cell2.h"
 
 #define PIXEL_GRAY 999
 #define PIXEL_RED 0
@@ -57,6 +56,8 @@ class TiffImage {
   // access the data pointer
   void* data() const { return m_data; }
 
+  void print() const;
+  
   // read the image tif to a 2D raster
   int ReadToRaster();
 
@@ -82,9 +83,6 @@ class TiffImage {
 
   // set the verbose output flag
   void setverbose(bool v) { verbose = v; }
-
-  // draw circles
-  int DrawCircles(const CellTable& table, int radius);
 
   // scale the image downx
   int Scale(double scale, bool ismode, int threads);

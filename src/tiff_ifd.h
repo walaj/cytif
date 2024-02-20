@@ -15,7 +15,7 @@ class TiffIFD {
 
   TiffIFD(TIFF* tif);
 
-  // this directoy id
+  // this directory id
   uint16_t dir = 0;
 
   // directory number of the SUB ifd
@@ -38,7 +38,7 @@ class TiffIFD {
   //friend std::ostream& operator<<(std::ostream& out, const TiffIFD& o);
 
   // print libtiff style info to stdout
-  void print(); 
+  void print() const; 
 
   bool isTiled();
 

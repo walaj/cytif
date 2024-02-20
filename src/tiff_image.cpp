@@ -18,6 +18,16 @@
   
   }*/
 
+void TiffImage::print() const {
+
+  //std::cout << "--- current ifd --- " <<  std::endl;
+  //m_ifd.print();
+
+  std::cout << "Height " << m_height << " Width " << m_width << std::endl;
+  
+  
+}
+
 TiffImage::TiffImage(const TiffReader& tr) {
 
   // make a local copy of this tiff reader
@@ -53,7 +63,7 @@ uint8_t TiffImage::pixel(uint64_t x, uint64_t y, int p) const {
   // check that the pixel is in bounds
   uint64_t dpos = y * m_width + x; 
   if (dpos > m_pixels || x > m_width || y > m_height) {
-    fprintf(stderr, "ERROR: Accesing out of bound pixel at (%ul,%ul)\n",x,y);
+    fprintf(stderr, "ERROR: Accesing out of bound pixel at (%llu,%llu)\n",x,y);
     assert(false);
   }
   
@@ -109,7 +119,7 @@ double TiffImage::mean() const {
   return (sum / m_pixels);
 
 }
-
+/*
 int TiffImage::Scale(double scale, bool ismode, int threads) {
 
   if (scale > 1) {
@@ -225,21 +235,22 @@ int TiffImage::Scale(double scale, bool ismode, int threads) {
   std::cerr << "New " << PAIRSTRING(new_width, new_height) << " pixels " << m_pixels << std::endl;
   
   // set the new width and height
-  /*if (!TIFFSetField(m_outtif, TIFFTAG_IMAGEWIDTH, new_width)) {
-    fprintf(stderr, "ERROR: image (shrunk) failed to set width\n");
-    m_width = 0;
-    return 1;
-  }
+  //if (!TIFFSetField(m_outtif, TIFFTAG_IMAGEWIDTH, new_width)) {
+  //  fprintf(stderr, "ERROR: image (shrunk) failed to set width\n");
+  //  m_width = 0;
+  //  return 1;
+ // }
   
-  if (!TIFFSetField(m_outtif, TIFFTAG_IMAGELENGTH, new_height)) {
-    fprintf(stderr, "ERROR: image (shrunk) failed to set height\n");
-    m_height = 0;
-    return 1;
-    }*/
+ // if (!TIFFSetField(m_outtif, TIFFTAG_IMAGELENGTH, new_height)) {
+ //   fprintf(stderr, "ERROR: image (shrunk) failed to set height\n");
+  //  m_height = 0;
+  //  return 1;
+   // }
   
   return 0;
   
 }
+*/
 
 int TiffImage::__alloc() {
 
@@ -268,7 +279,7 @@ int TiffImage::__alloc() {
     m_data = calloc(m_pixels * 3, sizeof(uint8_t));
     break;
   default:
-    fprintf(stderr, "not able to understand mode %d\n", mode);
+    fprintf(stderr, "not able to understand mode %zu\n", mode);
     assert(false);
 
     }
@@ -280,6 +291,17 @@ int TiffImage::__alloc() {
   
   return 0;
 }
+
+//int TiffImage::BuildColorImage(TiffReader& r_itif) {
+
+  // set the tags that make sense for a color image
+  /*TIFFSetField(otif, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_RGB);
+  TIFFSetField(otif, TIFFTAG_SAMPLESPERPIXEL, 3);
+  TIFFSetField(otif, TIFFTAG_BITSPERSAMPLE, 8);
+  TIFFSetField(otif, TIFFTAG_COMPRESSION, COMPRESSION_NONE);
+  */
+
+//}
 
 int TiffImage::ReadToRaster() {
 
@@ -331,38 +353,6 @@ uint8_t TiffImage::GetMode() const {
   
 }
 
-int TiffImage::DrawCircles(const CellTable& table, int radius) {
-  /*  
-  // allocate the raster memory
-  __alloc();
-  
-  std::vector<std::pair<float,float>> circle_shape = get_circle_points(radius);
-  
-  uint64_t m_cell = 0;
-
-  #pragma omp parallel for num_threads(m_threads)
-  for (const auto& c : table) {
-    //      std::cerr << c.cell_id << " - (" << c.x << "," << c.y << ")" << std::endl;
-    if (m_cell % 100000 == 0 && verbose) {
-	std::cerr << "...drawing circle for cell " << AddCommas<uint64_t>(m_cell) <<std::endl;
-      }
-      m_cell++;
-      
-      for (const auto& s: circle_shape) {
-	uint64_t xpos = std::round(c.x + s.first);
-	uint64_t ypos = std::round(c.y + s.second);
-	//std::cout << " c.x " << c.x << " s.first " << s.first << " c.y " << c.y <<
-	//  " s.second " << s.second << " xpos " << xpos << " ypos " << ypos << " m_width " << m_width <<
-	//  " pixels " << m_pixels << " pos " << (ypos * m_width + xpos) << std::endl;
-	if (ypos < m_height && xpos < m_width) {
-	  static_cast<uint8_t*>(m_data)[ypos * m_width + xpos] = static_cast<uint8_t>(255);
-	}
-      }
-    }
-  */
-  return 0;
-}
-
 TiffImage::TiffImage(uint32_t width, uint32_t height, uint8_t mode) {
 
   // defaults
@@ -394,5 +384,4 @@ TiffImage::TiffImage(uint32_t width, uint32_t height, uint8_t mode) {
   m_height = height;
   m_pixels = static_cast<uint64_t>(width) * height;
 
-  
 }
