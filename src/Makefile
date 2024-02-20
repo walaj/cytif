@@ -5,16 +5,18 @@ COMPILER_TYPE := $(shell $(CC) --version)
 ifneq (,$(findstring clang,$(COMPILER_TYPE)))                                                                                                                    
     OPENMP = -Xpreprocessor -fopenmp
     LSTD = -lc++
+    LIBTIFFHOME=/opt/homebrew/Cellar/libtiff/4.5.1	
 else
     OPENMP = -fopenmp
-    LSTD = 
+    LSTD =
+    LIBTIFFHOME=/home/jaw34/software/libtiff-4.4.0
 endif   
 
 #TIFF = $(shell pkg-config --define-variable=prefix=/home/jaw34/software/libtiff-git --cflags libtiff-4)
 #TIFF = -I$(HOME)/git/libtiff/libtiff
 #TIFF = -I$(HOME)/git/libtiff/includesoftware/libtiff-git/include
 #TIFF=-I$(HOME)/software/libtiff-4.6.0/include
-LIBTIFFHOME=/opt/homebrew/Cellar/libtiff/4.5.1
+
 TIFF=-I$(LIBTIFFHOME)/include
 
 #JPEG = -L/opt/homebrew/opt/jpeg/lib -L/opt/homebrew/Cellar/libpng/1.6.39/lib
