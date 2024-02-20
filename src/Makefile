@@ -13,7 +13,9 @@ endif
 #TIFF = $(shell pkg-config --define-variable=prefix=/home/jaw34/software/libtiff-git --cflags libtiff-4)
 #TIFF = -I$(HOME)/git/libtiff/libtiff
 #TIFF = -I$(HOME)/git/libtiff/includesoftware/libtiff-git/include
-TIFF=-I$(HOME)/software/libtiff-4.6.0/include
+#TIFF=-I$(HOME)/software/libtiff-4.6.0/include
+LIBTIFFHOME=/opt/homebrew/Cellar/libtiff/4.5.1
+TIFF=-I$(LIBTIFFHOME)/include
 
 #JPEG = -L/opt/homebrew/opt/jpeg/lib -L/opt/homebrew/Cellar/libpng/1.6.39/lib
 
@@ -25,7 +27,7 @@ TIFF=-I$(HOME)/software/libtiff-4.6.0/include
 #TIFFLD = $(shell pkg-config --define-variable=prefix=$(HOME)/software/libtiff-git --libs libtiff-4)
 #TIFFLD = -llzma $(HOME)/software/libtiff-git/lib/libtiff.a
 #TIFFLD = -llzma $(HOME)/git/libtiff/libtiff/libtiff.la
-TIFFLD=-llzma -L$(HOME)/software/libtiff-4.6.0/lib -ltiff
+TIFFLD=-llzma -L$(LIBTIFFHOME)/lib -ltiff
 
 CFLAGS = -g -std=c++17 -I.. $(TIFF) 
 LDFLAGS = $(TIFFLD) $(JPEG) -lz $(LSTD)
