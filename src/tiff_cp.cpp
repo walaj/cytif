@@ -329,6 +329,268 @@ int tiffcp(TIFF* in, TIFF* out, bool verbose) {
   return 0;
 }
 
+int tiffcp2(TIFF* in, TIFF* out, bool verbose) {
+  // one of:
+  // COMPRESSION_NONE, COMPRESSION_PACKBITS, COMPRESSION_JPEG
+  // COMPRESSION_CCITTFAX3, COMPRESSION_CCITTFAX4, COMPRESSION_LZW
+  // COMPRESSION_ADOBE_DEFLATE
+  // see libtiff function processCompressOptions(char* opt)
+  // https://github.com/LuaDist/libtiff/blob/43d5bd6d2da90e9bf254cd42c377e4d99008f00b/tools/tiffcp.c#L324
+  // default is just to copy from previous image
+  uint16_t compression = static_cast<uint16_t>(-1);
+
+  // force fill order to be either FILLORDER_LSB2MSB, FILLORDER_MSB2LSB
+  // default is just 0 which is don't change it in the new image
+  uint16_t fillorder= 0;  
+
+  // image orientation
+  uint16_t orientation;
+
+  // if we are dealing with jpegs....
+  int jpegcolormode = JPEGCOLORMODE_RGB;
+
+  // tile width and length
+  // default is copy from input
+  uint32_t tilewidth = 0; 
+  uint32_t tilelength = 0; 
+  
+  // output should be tiled
+  // default is just to copy the input
+  int outtiled = -1;
+
+  // planar config
+  // default is copy from input
+  uint16_t config = static_cast<uint16_t>(-1);
+
+  // number of rows per strip
+  // one of: PLANARCONFIG_SEPARATE, PLANARCONFIG_CONTIG
+  // default is copy from input
+  uint32_t rowsperstrip = 0;
+
+  // jpeg quality
+  int quality = 75;
+
+  // predictor used if COMPRESSION_DEFLATE
+  uint16_t predictor = static_cast<uint16_t>(-1);
+
+  // option used for COMPRESSION_CCITTFAX3
+  uint32_t g3opts = static_cast<uint32_t>(-1);
+  
+  uint16_t bitspersample, samplesperpixel;
+  copyFunc cf;
+  uint32_t width, length;
+  struct cpTag* p;
+  
+  CopyField(TIFFTAG_IMAGEWIDTH, width);
+  CopyField(TIFFTAG_IMAGELENGTH, length);
+  CopyField(TIFFTAG_BITSPERSAMPLE, bitspersample);
+  CopyField(TIFFTAG_SAMPLESPERPIXEL, samplesperpixel);
+
+  //
+  // compression
+  //
+  if (compression != static_cast<uint16_t>(-1))
+    TIFFSetField(out, TIFFTAG_COMPRESSION, compression);
+  else
+    CopyField(TIFFTAG_COMPRESSION, compression);
+  
+  if (compression == COMPRESSION_JPEG) {
+    uint16_t input_compression, input_photometric;
+    
+    if (TIFFGetField(in, TIFFTAG_COMPRESSION, &input_compression)
+	&& input_compression == COMPRESSION_JPEG) {
+      TIFFSetField(in, TIFFTAG_JPEGCOLORMODE, JPEGCOLORMODE_RGB);
+    }
+    if (TIFFGetField(in, TIFFTAG_PHOTOMETRIC, &input_photometric)) {
+      if(input_photometric == PHOTOMETRIC_RGB) {
+	if (jpegcolormode == JPEGCOLORMODE_RGB)
+	  TIFFSetField(out, TIFFTAG_PHOTOMETRIC,
+		       PHOTOMETRIC_YCBCR);
+	else
+	  TIFFSetField(out, TIFFTAG_PHOTOMETRIC,
+		       PHOTOMETRIC_RGB);
+      } else
+	TIFFSetField(out, TIFFTAG_PHOTOMETRIC,
+		     input_photometric);
+    }
+  }
+  else if (compression == COMPRESSION_SGILOG
+	   || compression == COMPRESSION_SGILOG24)
+    TIFFSetField(out, TIFFTAG_PHOTOMETRIC,
+		 samplesperpixel == 1 ?
+		 PHOTOMETRIC_LOGL : PHOTOMETRIC_LOGLUV);
+  else
+    CopyTag(TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_MINISBLACK, TIFF_SHORT);
+
+  // copy the fill order
+  if (fillorder != 0)
+    TIFFSetField(out, TIFFTAG_FILLORDER, fillorder);
+  else
+    CopyTag(TIFFTAG_FILLORDER, 1, TIFF_SHORT);
+  
+  //
+  // Will copy `Orientation' tag from input image
+  //
+  TIFFGetFieldDefaulted(in, TIFFTAG_ORIENTATION, &orientation);
+  switch (orientation) {
+  case ORIENTATION_BOTRIGHT:
+  case ORIENTATION_RIGHTBOT:
+    TIFFWarning(TIFFFileName(in), "using bottom-left orientation");
+    orientation = ORIENTATION_BOTLEFT;
+    // fall thru...
+  case ORIENTATION_LEFTBOT: 
+  case ORIENTATION_BOTLEFT:
+    break;
+  case ORIENTATION_TOPRIGHT:
+  case ORIENTATION_RIGHTTOP:
+  default:
+    TIFFWarning(TIFFFileName(in), "using top-left orientation");
+    orientation = ORIENTATION_TOPLEFT;
+    //
+  case ORIENTATION_LEFTTOP: 
+  case ORIENTATION_TOPLEFT:
+    break;
+  }
+  TIFFSetField(out, TIFFTAG_ORIENTATION, orientation);
+  
+
+  /*
+   * Choose tiles/strip for the output image according to
+   * the command line arguments (-tiles, -strips) and the
+   * structure of the input image.
+   */
+  if (outtiled == -1)
+    outtiled = TIFFIsTiled(in);
+  if (outtiled) {
+    /*
+     * Setup output file's tile width&height.  If either
+     * is not specified, use either the value from the
+     * input image or, if nothing is defined, use the
+     * library default.
+     */
+    if (!tilewidth) {
+      TIFFGetField(in, TIFFTAG_TILEWIDTH, &tilewidth);
+    }
+    if (!tilelength)
+      TIFFGetField(in, TIFFTAG_TILELENGTH, &tilelength);
+    TIFFDefaultTileSize(out, &tilewidth, &tilelength);
+    TIFFSetField(out, TIFFTAG_TILEWIDTH, tilewidth);
+    TIFFSetField(out, TIFFTAG_TILELENGTH, tilelength);
+  } else {
+    /*
+     * RowsPerStrip is left unspecified: use either the
+     * value from the input image or, if nothing is defined,
+     * use the library default.
+     */
+    if (rowsperstrip == 0) {
+      if (!TIFFGetField(in, TIFFTAG_ROWSPERSTRIP,
+			&rowsperstrip)) {
+	rowsperstrip =
+	  TIFFDefaultStripSize(out, rowsperstrip);
+      }
+      if (rowsperstrip > length)
+	rowsperstrip = length;
+    }
+    else if (rowsperstrip == static_cast<uint32_t>(-1))
+      rowsperstrip = length;
+    TIFFSetField(out, TIFFTAG_ROWSPERSTRIP, rowsperstrip);
+  }
+  if (config != static_cast<uint16_t>(-1))
+    TIFFSetField(out, TIFFTAG_PLANARCONFIG, config);
+  else
+    CopyField(TIFFTAG_PLANARCONFIG, config);
+  if (samplesperpixel <= 4)
+    CopyTag(TIFFTAG_TRANSFERFUNCTION, 4, TIFF_SHORT);
+  CopyTag(TIFFTAG_COLORMAP, 4, TIFF_SHORT);
+
+
+  //
+  // compression
+  //
+  switch (compression) {
+  case COMPRESSION_JPEG:
+    TIFFSetField(out, TIFFTAG_JPEGQUALITY, quality);
+    TIFFSetField(out, TIFFTAG_JPEGCOLORMODE, jpegcolormode);
+    break;
+  case COMPRESSION_LZW:
+  case COMPRESSION_ADOBE_DEFLATE:
+  case COMPRESSION_DEFLATE:
+    if (predictor != static_cast<uint16_t>(-1))
+      TIFFSetField(out, TIFFTAG_PREDICTOR, predictor);
+    else
+      CopyField(TIFFTAG_PREDICTOR, predictor);
+    break;
+  case COMPRESSION_CCITTFAX3:
+  case COMPRESSION_CCITTFAX4:
+    if (compression == COMPRESSION_CCITTFAX3) {
+      if (g3opts != static_cast<uint32_t>(-1))
+	TIFFSetField(out, TIFFTAG_GROUP3OPTIONS,
+		     g3opts);
+      else
+	CopyField(TIFFTAG_GROUP3OPTIONS, g3opts);
+    } else
+      CopyTag(TIFFTAG_GROUP4OPTIONS, 1, TIFF_LONG);
+    CopyTag(TIFFTAG_BADFAXLINES, 1, TIFF_LONG);
+    CopyTag(TIFFTAG_CLEANFAXDATA, 1, TIFF_LONG);
+    CopyTag(TIFFTAG_CONSECUTIVEBADFAXLINES, 1, TIFF_LONG);
+    CopyTag(TIFFTAG_FAXRECVPARAMS, 1, TIFF_LONG);
+    CopyTag(TIFFTAG_FAXRECVTIME, 1, TIFF_LONG);
+    CopyTag(TIFFTAG_FAXSUBADDRESS, 1, TIFF_ASCII);
+    break;
+  }
+
+  // not sure what this does
+  uint32_t len32;
+  void** data;
+  if (TIFFGetField(in, TIFFTAG_ICCPROFILE, &len32, &data))
+    TIFFSetField(out, TIFFTAG_ICCPROFILE, len32, data);
+
+  // not sure what this does
+  uint16_t ninks;
+  const char* inknames;
+  if (TIFFGetField(in, TIFFTAG_NUMBEROFINKS, &ninks)) {
+    TIFFSetField(out, TIFFTAG_NUMBEROFINKS, ninks);
+    if (TIFFGetField(in, TIFFTAG_INKNAMES, &inknames)) {
+      int inknameslen = strlen(inknames) + 1;
+      const char* cp = inknames;
+      while (ninks > 1) {
+	cp = strchr(cp, '\0');
+	if (cp) {
+	  cp++;
+	  inknameslen += (strlen(cp) + 1);
+	}
+	ninks--;
+      }
+      TIFFSetField(out, TIFFTAG_INKNAMES, inknameslen, inknames);
+    }
+  }
+
+  // not sure what this does
+  unsigned short pg0, pg1;
+  int pageNum = 0;
+  if (TIFFGetField(in, TIFFTAG_PAGENUMBER, &pg0, &pg1)) {
+    if (pageNum < 0) /* only one input file */
+      TIFFSetField(out, TIFFTAG_PAGENUMBER, pg0, pg1);
+    else 
+      TIFFSetField(out, TIFFTAG_PAGENUMBER, pageNum++, 0);
+  }
+
+  size_t ntags = sizeof (tags) / sizeof (tags[0]);
+  for (p = tags; p < &tags[ntags]; p++) {
+    if (verbose)
+      fprintf(stderr, "copying tag: %-21s %-5d %-20s\n",
+	      tiffTagNames.at(p->tag).c_str(),
+	      p->count, dataTypeNames.at(p->type).c_str());
+    CopyTag(p->tag, p->count, p->type);
+  }
+
+  // this starts a rabbit hole of copying the actual image data
+  // cf = pickCopyFunc(in, out, bitspersample, samplesperpixel);
+
+  return 0;
+}
+
+
 int GetIntTag(TIFF* tif, int tag) {
   uint32_t t;
   if (!TIFFGetField(tif, tag, &t))

@@ -221,6 +221,8 @@ typedef int (*copyFunc)
 
 int tiffcp(TIFF* in, TIFF* out, bool verbose);
 
+int tiffcp2(TIFF* in, TIFF* out, bool verbose);
+
 std::string tiffprint(TIFF* tif);
 
 int GetIntTag(TIFF* tif, int tag);

@@ -57,12 +57,14 @@ static const struct option longopts[] = {
 static const char *RUN_USAGE_MESSAGE =
 "Usage: tiffo [module] <options> infile outfile\n"
 "Modules:\n"
+"  compress - Zero out noise-only tiles for better compression\n"
 "  gray2rgb - Convert a 3-channel gray TIFF to a single RGB\n"
 "  colorize - Colorize select channels from a cycif tiff\n"
 "  mean - Give the mean pixel for each channel\n"
 "  csv - <placeholder for csv processing>\n"
   "\n";
-  
+
+static int compress();
 static int gray2rgb();
 static int findmean();
 static int colorize();
@@ -97,6 +99,8 @@ int main(int argc, char **argv) {
   // get the module
   if (opt::module == "gray2rgb") {
     return(gray2rgb());
+  } else if (opt::module == "compress") {
+    return(compress());
   } else if (opt::module == "colorize") {
     return(colorize());
   } else if (opt::module == "mean") {
@@ -137,9 +141,6 @@ static int gray2rgb() {
   // copy all of the tags from in to out
   tiffcp(r_itif, otif, false);
   
-  TIFFSetField(otif, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_RGB);
-  TIFFSetField(otif, TIFFTAG_SAMPLESPERPIXEL, 3);
-
   // if this is a single 3 IFD file
   MergeGrayToRGB(r_itif, otif);
   
@@ -149,6 +150,30 @@ static int gray2rgb() {
   return 0;
 }
 
+
+static int compress() {
+  
+  // open either the red channel or the 3-IFD file
+  TIFF *r_itif = TIFFOpen(opt::infile.c_str(), "rm");
+  
+  // Open the output TIFF file
+  TIFF* otif = TIFFOpen(opt::outfile.c_str(), "w8");
+  if (otif == NULL) {
+    fprintf(stderr, "Error opening %s for writing\n", opt::outfile.c_str());
+    return 1;
+  }
+  
+  // copy all of the tags from in to out
+  tiffcp2(r_itif, otif, false);
+
+  Compress(r_itif, otif);
+  
+  TIFFClose(r_itif);
+  TIFFClose(otif);
+
+  return 0;
+
+}
 
 static int colorize() {
   
@@ -260,7 +285,7 @@ static void parseRunOptions(int argc, char** argv) {
     optind++;
   }
 
-  if (! (opt::module == "gray2rgb" || opt::module == "mean" || opt::module == "csv" || opt::module == "debug" || opt::module == "circles" || opt::module == "knn" || opt::module == "colorize") ) {
+  if (! (opt::module == "gray2rgb" || opt::module == "mean" || opt::module == "compress" || opt::module == "debug" || opt::module == "colorize") ) {
     std::cerr << "Module " << opt::module << " not implemented" << std::endl;
     die = true;
   }

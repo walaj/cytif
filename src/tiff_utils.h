@@ -18,6 +18,7 @@ using funcmm_t = double (*)(uint8_t*, size_t); // mean vs mode function object
 #define PAIRSTRING(X_, Y_) "(" + std::to_string(X_) + ", " + std::to_string(Y_) +  ")"
 
 int MergeGrayToRGB(TIFF* in, TIFF* out);
+int Compress(TIFF* in, TIFF* out);
 int Colorize(TIFF* in, TIFF* out, const std::string& palette_file,
 	     const std::vector<int>& channels_to_run);
 

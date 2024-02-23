@@ -4,6 +4,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <cstring>
 
 #include <algorithm> // for std::min and std::max
 #include <cstdint>   // for uint16_t and uint8_t
@@ -100,24 +101,105 @@ static void __gray8assert(TIFF* in) {
   
 }
 
+int Compress(TIFF* in, TIFF* out) {
+
+  // display number of directories / channels
+  int num_dir = TIFFNumberOfDirectories(in);
+  std::cerr << "Number of channels in image: " << num_dir << std::endl;
+  
+  // loop each channel
+  for (int n = 0; n < num_dir; n++) {
+    
+    TIFFSetDirectory(in, n);
+    std::cerr << "...working on directory " << n << std::endl;
+    
+    uint32_t m_height = 0;
+    uint32_t m_width = 0;
+    
+    if (!TIFFGetField(in, TIFFTAG_IMAGEWIDTH, &m_width)) {
+      std::cerr << " ERROR getting image width " << std::endl;
+      return 1;
+    }
+    if (!TIFFGetField(in, TIFFTAG_IMAGELENGTH, &m_height)) {
+      std::cerr << " ERROR getting image height " << std::endl;
+      return 1;
+    }
+
+    // debug
+    std::cerr << "...height " << m_height << " width " << m_width << std::endl;
+    
+    if (TIFFIsTiled(in)) {
+      
+      uint32_t tileheight = 0;
+      uint32_t tilewidth = 0;
+      
+      if (!TIFFGetField(in, TIFFTAG_TILEWIDTH, &tilewidth)) {
+	std::cerr << " ERROR getting tile width " << std::endl;
+	return 1;
+      }
+      if (!TIFFGetField(in, TIFFTAG_TILELENGTH, &tileheight)) {
+	std::cerr << " ERROR getting tile height " << std::endl;
+	return 1;
+      }
+      
+      uint64_t ts = TIFFTileSize(in);
+      
+      // allocate memory for a single tile
+      uint16_t* itile = (uint16_t*)calloc(ts / 2, sizeof(uint16_t));
+      
+      if (itile == nullptr) {
+	std::cerr << "Memory allocation for channels failed." << std::endl;
+	assert(false);
+      }
+      
+      // allocated the output tile
+      void*     otile = (void*)calloc(ts / 2, sizeof(uint16_t));  // div by 2 because uint16
+      
+    // loop through the tiles
+      uint64_t x, y;
+      uint64_t m_pix = 0;
+      for (y = 0; y < m_height; y += tileheight) {
+	for (x = 0; x < m_width; x += tilewidth) {
+	  
+	  // Read the input tile
+	  if (TIFFReadTile(in, itile, x, y, 0, 0) < 0) {
+	    fprintf(stderr, "Error reading input channel %d tile at (%llu, %llu)\n", n, x, y);
+	    return 1;
+	  }
+	  
+	  // get the mean for the tile
+	  uint64_t sum = 0;
+	  for (size_t i = 0; i < ts / 2; i++) {
+	    sum += itile[i];
+	  }
+      
+	  // if mean is above threshold, then copy data
+	  if (sum / ts * 2 >= 10)
+	    memcpy(otile, itile, (ts / 2) * sizeof(uint16_t));
+	  
+	  // Write the tile to the TIFF file
+	  // this function will automatically calculate memory size from TIFF tags
+	  if (TIFFWriteTile(out, otile, x, y, 0, 0) < 0) { 
+	    fprintf(stderr, "Error writing tile at (%llu, %llu)\n", x, y);
+	    return 1;
+	  }
+	} // end x loop
+      } // end y loop
+      
+      free(otile);
+      free(itile);
+
+      assert(TIFFWriteDirectory(out));
+    } // end tiff tiled?
+
+    
+  } // end channel loop
+  return 0;
+}
+
 int Colorize(TIFF* in, TIFF* out, const std::string& palette_file,
 	     const std::vector<int>& channels_to_run) {
   
-  TIFFSetDirectory(in, 0);
-
-  uint32_t m_height = 0;
-  uint32_t m_width = 0;
-  
-  // I'm going to assume here that all three sub-images have same tile size
-  if (!TIFFGetField(in, TIFFTAG_IMAGEWIDTH, &m_width)) {
-    std::cerr << " ERROR getting image width " << std::endl;
-    return 1;
-  }
-  if (!TIFFGetField(in, TIFFTAG_IMAGELENGTH, &m_height)) {
-    std::cerr << " ERROR getting image height " << std::endl;
-    return 1;
-  }
-
   // display number of directories / channels
   int num_dir = TIFFNumberOfDirectories(in);
   std::cerr << "Number of channels in image: " << num_dir << std::endl;
@@ -152,6 +234,17 @@ int Colorize(TIFF* in, TIFF* out, const std::string& palette_file,
     }
   }
 
+  // input checking
+  if (channels_to_run.size() == 0) {
+    std::cerr << "no channels selected" << std::endl;
+    return 0;
+  }
+  
+  // subset to just the channels that we want to colorize
+  ChannelVector channels_to_run_map;
+  for (auto n : channels_to_run)
+    channels_to_run_map.push_back(channels.at(n));
+
   // error checking
   int channel_max = *std::max_element(channels_to_run.begin(), channels_to_run.end());
   if (channel_max >= channels.size()) {
@@ -167,16 +260,33 @@ int Colorize(TIFF* in, TIFF* out, const std::string& palette_file,
   
   // print
   for (const auto& i : channels_to_run)
-    //std::cerr << "Channel number: " << i << " channel size " << channels.size() << std::endl;
     std::cerr << "Channel: " << channels.at(i) << std::endl;
   
-  TIFFSetDirectory(in, 0);
   if (TIFFIsTiled(in)) {
     
+    // check that all of the tile sizes are the same
+    TIFFSetDirectory(in, channels_to_run[0]);
+    uint64_t ts = TIFFTileSize(in);
+    for (int i = 1; i < channels_to_run.size(); i++) {
+      TIFFSetDirectory(in, channels_to_run[i]);
+      assert(TIFFTileSize(in) == ts);
+    }
+
+    // get the image data for this
     uint32_t tileheight = 0;
     uint32_t tilewidth = 0;
+    uint32_t m_height = 0;
+    uint32_t m_width = 0;
     
-    // I'm going to assume here that all three sub-images have same tile size
+    if (!TIFFGetField(in, TIFFTAG_IMAGEWIDTH, &m_width)) {
+      std::cerr << " ERROR getting image width " << std::endl;
+      return 1;
+    }
+    if (!TIFFGetField(in, TIFFTAG_IMAGELENGTH, &m_height)) {
+      std::cerr << " ERROR getting image height " << std::endl;
+      return 1;
+    }
+    
     if (!TIFFGetField(in, TIFFTAG_TILEWIDTH, &tilewidth)) {
       std::cerr << " ERROR getting tile width " << std::endl;
       return 1;
@@ -186,15 +296,8 @@ int Colorize(TIFF* in, TIFF* out, const std::string& palette_file,
       return 1;
     }
     
-    uint64_t ts = TIFFTileSize(in);
-    for (int i = 1; i < num_dir; i++) {
-      TIFFSetDirectory(in, 1);
-      assert(TIFFTileSize(in) == ts);
-    }
-
     // allocate memory for a single tile
     uint16_t** channels = allocateChannels(channels_to_run.size(), ts / 2);
-
     if (channels == nullptr) {
       std::cerr << "Memory allocation for channels failed." << std::endl;
       assert(false);
@@ -202,36 +305,7 @@ int Colorize(TIFF* in, TIFF* out, const std::string& palette_file,
 
     // allocated the RGB tile
     void*     o_tile = (void*)calloc(ts / 2 * 3, sizeof(uint8_t));  // div by 2 because uint16 -> uint8, then *3 because R, G, B
-
-    // example
-    const std::vector<Channel> channel_vec=
-      {
-	{Channel(0, "", RGBColor(56, 108,176), 2000, 10000)}, // Hoechst (blue)
-	{Channel(1, "", RGBColor(0,0,0),1000,2000)}, // dummy
-	{Channel(2, "", RGBColor(0,0,0),1000,2000)}, // dummy
-	{Channel(3, "", RGBColor(0,0,0),1000,2000)}, // dummy
-	{Channel(4, "", RGBColor(0,0,0),1000,2000)}, // dummy
-	{Channel(5, "", RGBColor(0,0,0),1000,2000)}, // dummy
-	{Channel(6,  "",RGBColor(190,174,212), 400, 1000)},   // CD20 (purple)
-	{Channel(7, "", RGBColor(253,192,134), 400, 1000)},   // CD4 (orange)
-	{Channel(8, "", RGBColor(77 ,175, 74), 500, 1000)},   // CD8 (green) 
-	{Channel(9,  "",RGBColor(0,0,0),1000,2000)}, // dummy
-	{Channel(10, "",RGBColor(0,0,0),1000,2000)}, // dummy
-	{Channel(11, "",RGBColor(255,0 ,255),500,4000)}, // CD3 (pink)
-	{Channel(12, "",RGBColor(0,0,0),1000,2000)}, // dummy
-	{Channel(13, "",RGBColor(0,0,0),1000,2000)}, // dummy
-	{Channel(14, "",RGBColor(0,0,0),1000,2000)}, // dummy
-	{Channel(15, "",RGBColor(255,0,0),400,4000)}, // CD45 (red)
-	{Channel(16, "",RGBColor(255,255,255), 400, 5000)},   // PanCK (white)
-	{Channel(17, "",RGBColor(0,0,0),1000,2000)}, // dummy			
-	{Channel(18, "",RGBColor(255,255,0), 400, 1000)},   // SMA (yellow)
-	{Channel(19, "",RGBColor(0,0,0),1000,2000)}, // dummy			
-      };
-
-    std::vector<Channel> channels_to_run_map;
-    for (auto n : channels_to_run)
-      channels_to_run_map.push_back(channel_vec[n]);
-
+    
     // storage for pixel values
     std::vector<uint16_t> pixel_values;
     pixel_values.resize(channels_to_run.size());
@@ -241,12 +315,11 @@ int Colorize(TIFF* in, TIFF* out, const std::string& palette_file,
     uint64_t m_pix = 0;
     for (y = 0; y < m_height; y += tileheight) {
       for (x = 0; x < m_width; x += tilewidth) {
-
+	
 	// copy in the tiles from channels
 	size_t channel_num = 0;
 	for (const auto& m : channels_to_run) {
-
-	  // std::cerr << " reading channel " << m << " which is num " << channel_num << std::endl;
+	  
 	  // Read the red tile
 	  TIFFSetDirectory(in, m);
 	  if (TIFFReadTile(in, channels[channel_num], x, y, 0, 0) < 0) {
@@ -255,11 +328,10 @@ int Colorize(TIFF* in, TIFF* out, const std::string& palette_file,
 	  }
 	  channel_num++;
 	}
-
-
+	
 	// copy the tile to the RGB, pixel by pixel
 	for (size_t i = 0; i < (ts / 2); ++i) {
-
+	  
 	  // copy the channel number + values to a map
 	  int n = 0;
 	  for (const auto& m : channels_to_run) {
@@ -290,9 +362,6 @@ int Colorize(TIFF* in, TIFF* out, const std::string& palette_file,
     freeChannels(channels, channels_to_run.size());
     
     free(o_tile);
-    //free(r_tile);
-    //free(g_tile);
-    //free(b_tile);
 
   }
 
@@ -347,7 +416,6 @@ int MergeGrayToRGB(TIFF* in, TIFF* out) {
       std::cerr << " ERROR getting tile height " << std::endl;
       return 1;
     }
-    
     
     uint64_t ts = TIFFTileSize(in);
     for (int i = 1; i < 3; i++) {
