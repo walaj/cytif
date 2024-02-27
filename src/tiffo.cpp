@@ -324,7 +324,7 @@ static int colorize(int argc, char** argv) {
   //std::cerr << tiffprint(otif) << std::endl;
   
   // if this is a single 3 IFD file
-  Colorize(r_itif, otif, palette, channels);
+  Colorize(r_itif, otif, palette, channels, opt::verbose);
   
   TIFFClose(r_itif);
   TIFFClose(otif);

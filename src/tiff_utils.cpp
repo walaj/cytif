@@ -198,11 +198,13 @@ int Compress(TIFF* in, TIFF* out) {
 }
 
 int Colorize(TIFF* in, TIFF* out, const std::string& palette_file,
-	     const std::vector<int>& channels_to_run) {
+	     const std::vector<int>& channels_to_run,
+	     bool verbose) {
   
   // display number of directories / channels
   int num_dir = TIFFNumberOfDirectories(in);
-  std::cerr << "Number of channels in image: " << num_dir << std::endl;
+  if (verbose)
+    std::cerr << "Number of channels in image: " << num_dir << std::endl;
 
   ////// READ THE PALETTE
   ChannelVector channels;
@@ -259,8 +261,9 @@ int Colorize(TIFF* in, TIFF* out, const std::string& palette_file,
   }
   
   // print
-  for (const auto& i : channels_to_run)
-    std::cerr << "Channel: " << channels.at(i) << std::endl;
+  if (verbose)
+    for (const auto& i : channels_to_run)
+      std::cerr << "Channel: " << channels.at(i) << std::endl;
   
   if (TIFFIsTiled(in)) {
     
@@ -313,9 +316,16 @@ int Colorize(TIFF* in, TIFF* out, const std::string& palette_file,
     // loop through the tiles
     uint64_t x, y;
     uint64_t m_pix = 0;
+    size_t tile_num = 1;
+
+    // num tiles, using divisor trick to round up
+    int num_tiles = ((m_height + tileheight - 1) / tileheight) * ((m_width + tilewidth - 1) / tilewidth);
+    
     for (y = 0; y < m_height; y += tileheight) {
+      if (verbose)
+	std::cerr << "...working on tile " << tile_num << " of " << num_tiles << std::endl;
       for (x = 0; x < m_width; x += tilewidth) {
-	
+	tile_num++;
 	// copy in the tiles from channels
 	size_t channel_num = 0;
 	for (const auto& m : channels_to_run) {
