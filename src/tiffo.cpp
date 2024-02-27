@@ -64,12 +64,16 @@ static const char *RUN_USAGE_MESSAGE =
 "  csv - <placeholder for csv processing>\n"
   "\n";
 
-static int compress();
-static int gray2rgb();
-static int findmean();
-static int colorize();
-static int debugfunc();
+static int compress(int argc, char** argv);
+static int gray2rgb(int argc, char** argv);
+static int findmean(int argc, char** argv);
+static int colorize(int argc, char** argv);
 static void parseRunOptions(int argc, char** argv);
+
+// process in and outfile cmd arguments
+static bool in_out_process(int argc, char** argv);
+static bool in_only_process(int argc, char** argv);
+static bool check_readable(const std::string& filename);
 
 /*
   https://github.com/LuaDist/libtiff/blob/43d5bd6d2da90e9bf254cd42c377e4d99008f00b/libtiff/tiffio.h#L61
@@ -89,7 +93,6 @@ int main(int argc, char **argv) {
   
   // Check if a command line argument was provided
   if (argc < 2) {
-    std::cerr << "Error: missing command line argument" << std::endl;
     std::cerr << RUN_USAGE_MESSAGE;
     return 1;
   }
@@ -98,23 +101,43 @@ int main(int argc, char **argv) {
   
   // get the module
   if (opt::module == "gray2rgb") {
-    return(gray2rgb());
+    return(gray2rgb(argc, argv));
   } else if (opt::module == "compress") {
-    return(compress());
+    return(compress(argc, argv));
   } else if (opt::module == "colorize") {
-    return(colorize());
+    return(colorize(argc, argv));
   } else if (opt::module == "mean") {
-    return(findmean());
-  } else if (opt::module == "debug") {
-    return(debugfunc());
+    return(findmean(argc, argv));
   } else {
     assert(false);
   }
   return 1;
 }
 
-int findmean() {
+static int findmean(int argc, char** argv) {
 
+  bool die = false;
+  const char* shortopts = "v";
+  for (char c; (c = getopt_long(argc, argv, shortopts, longopts, NULL)) != -1;) {
+    std::istringstream arg(optarg != NULL ? optarg : "");
+    switch (c) {
+    case 'v' : opt::verbose = true; break;
+    default: die = true;
+    }
+  }
+
+  if (die || in_only_process(argc, argv)) {
+    
+    const char *USAGE_MESSAGE =
+      "Usage: tiffo findmean [tiff] <options>\n"
+      "  Print the mean pixel value of a TIFF\n"
+      "  -v, --verbose             Increase output to stderr"
+      "\n";
+    std::cerr << USAGE_MESSAGE;
+    return 1;
+  }
+
+  
   // open a tiff
   // the "m" keeps it from being memory mapped, which for
   // a single pass just causes memory overruns from the C memmap func
@@ -126,8 +149,29 @@ int findmean() {
   return 0;
 }
 
-static int gray2rgb() {
+static int gray2rgb(int argc, char** argv) {
 
+  bool die = false;
+  const char* shortopts = "v";
+  for (char c; (c = getopt_long(argc, argv, shortopts, longopts, NULL)) != -1;) {
+    std::istringstream arg(optarg != NULL ? optarg : "");
+    switch (c) {
+    case 'v' : opt::verbose = true; break;
+    default: die = true;
+    }
+  }
+
+  if (die || in_out_process(argc, argv)) {
+    
+    const char *USAGE_MESSAGE =
+      "Usage: tiffo gray2rgb [tiff] [tiff out] <options>\n"
+      "  Convert a 3-channel grayscale image (8-bit) to RGB\n"
+      "  -v, --verbose             Increase output to stderr\n"
+      "\n";
+    std::cerr << USAGE_MESSAGE;
+    return 1;
+  }
+  
   // open either the red channel or the 3-IFD file
   TIFF *r_itif = TIFFOpen(opt::infile.c_str(), "rm");
 
@@ -151,7 +195,29 @@ static int gray2rgb() {
 }
 
 
-static int compress() {
+static int compress(int argc, char** argv) {
+
+  bool die = false;
+  const char* shortopts = "v";
+  for (char c; (c = getopt_long(argc, argv, shortopts, longopts, NULL)) != -1;) {
+    std::istringstream arg(optarg != NULL ? optarg : "");
+    switch (c) {
+    case 'v' : opt::verbose = true; break;
+    default: die = true;
+    }
+  }
+
+  if (die || in_out_process(argc, argv)) {
+    
+    const char *USAGE_MESSAGE =
+      "Usage: tiffo compress [tiff in] [tiff out] <options>\n"
+      "  Zero out tiles with low signal, to improve compression ratio\n"
+      "  -v, --verbose             Increase output to stderr\n"
+      "\n";
+    std::cerr << USAGE_MESSAGE;
+    return 1;
+  }
+
   
   // open either the red channel or the 3-IFD file
   TIFF *r_itif = TIFFOpen(opt::infile.c_str(), "rm");
@@ -175,8 +241,42 @@ static int compress() {
 
 }
 
-static int colorize() {
+static int colorize(int argc, char** argv) {
+
+  bool die = false;
+  std::string palette;
+  std::vector<int> channels;
   
+  const char* shortopts = "vc:";
+  for (char c; (c = getopt_long(argc, argv, shortopts, longopts, NULL)) != -1;) {
+    std::istringstream arg(optarg != NULL ? optarg : "");
+    switch (c) {
+    case 'v' : opt::verbose = true; break;
+    case 'p' : arg >> palette; break;      
+    case 'c' : 
+      {
+      std::string token;
+      while (std::getline(arg, token, ',')) 
+	channels.push_back(std::stoi(token));
+      }
+      break;  
+      
+    default: die = true;
+    }
+  }
+  
+
+  if (die || in_out_process(argc, argv)) {
+    const char *USAGE_MESSAGE =
+      "Usage: tiffo colorize [16-bit tiff] [rgb tiff] <options>\n"
+      "  Color a 16-bit multichannel tiff to certain channels and with pre-specified palette\n"
+      "    -c                Comma-separated list of channels (e.g. 0,1,4,5)\n"
+      "    -p                Palette file of format: number,name,r,g,b,lower,upper\n"
+      "\n";
+    std::cerr << USAGE_MESSAGE;
+    return 1;
+  }
+
   // open either the red channel or the 3-IFD file
   TIFF *r_itif = TIFFOpen(opt::infile.c_str(), "rm");
 
@@ -236,15 +336,16 @@ static int colorize() {
 }
 
 
-
 // parse the command line options
 static void parseRunOptions(int argc, char** argv) {
   bool die = false;
 
   if (argc <= 1) 
     die = true;
-
-  bool help = false;
+  else
+    opt::module = argv[1];
+  
+  /*  bool help = false;
   std::stringstream ss;
 
   int sample_number = 0;
@@ -284,20 +385,17 @@ static void parseRunOptions(int argc, char** argv) {
     } 
     optind++;
   }
-
+  */
+  
   if (! (opt::module == "gray2rgb" || opt::module == "mean" || opt::module == "compress" || opt::module == "debug" || opt::module == "colorize") ) {
     std::cerr << "Module " << opt::module << " not implemented" << std::endl;
     die = true;
   }
 
-  if (opt::module == "gray2rgb" && argc != 4)
-    die = true;
+  //if (opt::module == "gray2rgb" && argc != 4)
+  //  die = true;
 
-  if (opt::module == "circles" && opt::quantfile.empty())
-    die = true;
-  
-  if (die || help) 
-    {
+  if (die) {
       std::cerr << "\n" << RUN_USAGE_MESSAGE;
       if (die)
 	exit(EXIT_FAILURE);
@@ -306,127 +404,82 @@ static void parseRunOptions(int argc, char** argv) {
     }
 }
 
-static int circles() {
-
-  /*
-  // make the header
-  CellHeader header(opt::quantfile);
-
-  // this the main quant table
-  std::cerr << "...reading table" << std::endl;
-  CellTable table(opt::quantfile, &header,0);
+// return TRUE if you want the process to die and print message
+static bool in_only_process(int argc, char** argv) {
   
-  // open the input tiff
-  //TiffReader reader(opt::infile.c_str());
+  optind++;
+  // Process any remaining no-flag options
+  size_t count = 0;
+  while (optind < argc) {
+    if (opt::infile.empty()) {
+      opt::infile = argv[optind];
+    }
+    count++;
+    optind++;
+  }
+
+  // there should be only 1 non-flag input
+  if (count > 1)
+    return true;
   
-  // create a raw tiff to draw circles onto
-  TiffWriter writer(opt::outfile.c_str());
-  //writer.CopyFromReader(reader);
-
-  writer.SetTag(TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_MINISBLACK);
-  writer.SetTag(TIFFTAG_SAMPLESPERPIXEL, 1);
-  writer.SetTag(TIFFTAG_BITSPERSAMPLE, 8);  
+  // die if no inputs provided
+  if (count == 0)
+    return true;
   
-  // scale the cell table
-  uint32_t w,h;
-  table.GetDims(w,h);
-  float scale_factor = 1000.0f / w;
-  table.scale(scale_factor);
+  if (!check_readable(opt::infile) && opt::infile != "-") {
+    std::cerr << "Error: File " << opt::infile << " not readable/exists" << std::endl;
+    return true;
+  }
   
-  // get the bounds of the new table
-  table.GetDims(w,h);
-
-  // mode is 8
-  TiffImage circles(w, h, 8);
-  circles.setthreads(opt::threads);
-  circles.setverbose(opt::verbose);
-
-  // 
-  std::cerr << "...making circles" << std::endl;
-  circles.DrawCircles(table, 2);
-
-  writer.UpdateDims(circles);
-  writer.SetTile(0,0);
-  TIFFSetupStrips(writer.get());
-  std::cerr << " writing " << std::endl;
-  writer.Write(circles);
-  */
-  return 0;
+  return opt::infile.empty();
 
 }
 
-static int debugfunc() {
-  /*
-  TiffReader reader(opt::infile.c_str());
 
-  reader.print();
-
-  uint64_t* offsets = NULL;
-  TIFFGetField(reader.get(), TIFFTAG_STRIPOFFSETS, &offsets);
+// return TRUE if you want the process to die and print message
+static bool in_out_process(int argc, char** argv) {
   
-  //std::cout << "...working on mean" << std::endl;
-  //reader.print_means();
+  optind++;
+  // Process any remaining no-flag options
+  size_t count = 0;
+  while (optind < argc) {
+    if (opt::infile.empty()) {
+      opt::infile = argv[optind];
+    } else if (opt::outfile.empty()) {
+      opt::outfile = argv[optind];
+    }
+    count++;
+    optind++;
+  }
 
-  TiffImage image(reader);
-  std::cerr << "...reading in" << std::endl;
-  image.ReadToRaster();
-
-  // shrink it
-  float scale_factor = 1000.0f / image.width();
-  image.Scale(scale_factor, true, opt::threads);
+  // there should be only 2 non-flag input
+  if (count > 2)
+    return true;
+  // die if no inputs provided
+  if (count == 0)
+    return true;
   
-  TiffWriter writer(opt::outfile.c_str());
-  writer.CopyFromReader(reader);
-  writer.MatchTagsToRaster(image);
+  if (!check_readable(opt::infile) && opt::infile != "-") {
+    std::cerr << "Error: File " << opt::infile << " not readable/exists" << std::endl;
+    return true;
+  }
 
-  std::cerr << "...writing" << std::endl;
-  writer.Write(image);
   
-  //myplot();
-  return 1;
-*/  
-  /* std::cerr << " opening file " << opt::infile << std::endl;
-  TIFF* in = TIFFOpen(opt::infile.c_str(), "rm");
+  return opt::infile.empty() || opt::outfile.empty();
 
-  std::cerr << " making output file " << opt::outfile << std::endl;
-  TIFF* out = TIFFOpen(opt::outfile.c_str(), "w8");
-
-  std::cerr << " making TiffImage and reading to raster" << std::endl;
-  TiffImage tin(in);
-  tin.setverbose(true);
-  tin.ReadToRaster();
-
-  std::cerr << " mean of input " << tin.mean(in) << std::endl;
-
-  std::cerr << " copying tags to output" << std::endl;
-  tiffcp(in, out, false);
-  
-  std::cerr << " writing raster" << std::endl;
-  tin.write(out);
-
-  std::cerr << "closing" << std::endl;
-  TIFFClose(in);
-  TIFFClose(out);
-
-  */
-  return 0;
-    
-  
-  
 }
 
 
-int knn() {
-  /*
-  // make the header
-  CellHeader header(opt::quantfile);
+static bool check_readable(const std::string& filename) {
 
-  // this the main quant table
-  std::cerr << "...reading table" << std::endl;
-  CellTable table(opt::quantfile, &header,10000);
+  std::ifstream file(filename);
 
-  std::vector<double> data = table.ColumnMajor();  
-  */
+  bool answer = file.is_open();
+  
+  // Close the file if it was opened
+  if (file) {
+    file.close();
+  }
 
-  return 0;
+  return answer;
 }
