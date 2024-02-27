@@ -247,7 +247,7 @@ static int colorize(int argc, char** argv) {
   std::string palette;
   std::vector<int> channels;
   
-  const char* shortopts = "vc:";
+  const char* shortopts = "vc:p:";
   for (char c; (c = getopt_long(argc, argv, shortopts, longopts, NULL)) != -1;) {
     std::istringstream arg(optarg != NULL ? optarg : "");
     switch (c) {
