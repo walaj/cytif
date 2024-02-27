@@ -123,17 +123,44 @@ ${tmp_file}
 # LEGEND
 ########
 # Rectangle dimensions (10% of the image height, full width)
+# Rectangle dimensions (10% of the image height, full width)
 rectangle_height=$(echo "$image_height * 0.1" | bc | cut -d'.' -f1)
 
-# Channels and their respective colors
-#channels=("Channel1" "Channel2" "Channel3" "Channel4" "Channel5")  # Example channel names
-#colors=(
-#    "255,0,0"    # Red
-#    "0,255,0"    # Green
-#    "0,0,255"    # Blue
-#    "255,255,0"  # Yellow
-#    "255,165,0"  # Orange
-#)
+# Verify that the number of colors matches the number of channels
+if [ ${#channel_rgbs[@]} -ne ${#channel_names[@]} ]; then
+    echo "Error: The number of colors does not match the number of channels." >&2
+    exit 1
+fi
+
+# Initial X position (you might want to start with a small margin)
+initial_x_position=10
+current_x_position=$initial_x_position
+
+# Create a new image with the rectangle
+magick convert "${tmp_file}" -fill black -draw "rectangle 0,0 $image_width,$rectangle_height" "${tmp_file}"
+
+# Loop through the channels and draw each one with its color
+for ((i=0; i<${#channel_names[@]}; i++)); do
+    color=${channel_rgbs[$i]}
+    channel=${channel_names[$i]}
+    
+    # Estimate text width (adjust the multiplier as needed to fit your font and size)
+    text_width=$(echo "${#channel} * $FONTSIZE * 0.6" | bc)
+    
+    # Draw text
+    magick convert "${tmp_file}" -fill "rgb($color)" -font "${FONT}" -pointsize ${FONTSIZE} \
+    -gravity NorthWest -annotate +${current_x_position}+$(($rectangle_height / 2 - 15)) "${channel}" "${tmp_file}"
+    
+    # Update current_x_position by adding the estimated text width and a small fixed space for padding between texts
+    current_x_position=$(echo "$current_x_position + $text_width + 10" | bc)
+done
+
+# Save the final image
+mv ${tmp_file} ${OUTJPG}
+
+exit
+
+rectangle_height=$(echo "$image_height * 0.1" | bc | cut -d'.' -f1)
 
 # Calculate the number of text boxes from the channels array
 num_text_boxes=${#channel_numbers[@]}

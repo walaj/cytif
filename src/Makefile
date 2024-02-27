@@ -5,7 +5,7 @@ COMPILER_TYPE := $(shell $(CC) --version)
 ifneq (,$(findstring clang,$(COMPILER_TYPE)))                                                                                                                    
     OPENMP = -Xpreprocessor -fopenmp
     LSTD = -lc++
-    LIBTIFFHOME=/opt/homebrew/Cellar/libtiff/4.5.1	
+    LIBTIFFHOME=/opt/homebrew/Cellar/libtiff/4.5.1
 else
     OPENMP = -fopenmp
     LSTD =
