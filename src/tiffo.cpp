@@ -24,9 +24,6 @@ namespace opt {
   static std::string outfile;
   static std::string module;
 
-  static std::string palette;
-  static std::vector<int> channels;
-  
   static std::string redfile;
   static std::string greenfile;
   static std::string bluefile;
@@ -327,7 +324,7 @@ static int colorize(int argc, char** argv) {
   //std::cerr << tiffprint(otif) << std::endl;
   
   // if this is a single 3 IFD file
-  Colorize(r_itif, otif, opt::palette, opt::channels);
+  Colorize(r_itif, otif, palette, channels);
   
   TIFFClose(r_itif);
   TIFFClose(otif);
