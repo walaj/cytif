@@ -129,7 +129,6 @@ std::vector<double> TiffIFD::mean() {
   uint16_t tmp_dir = TIFFCurrentDirectory(m_tif);
   TIFFSetDirectory(m_tif, dir);
   
-  
   uint8_t mode = GetMode();
     
   void* buf;
@@ -146,7 +145,7 @@ std::vector<double> TiffIFD::mean() {
   double np = static_cast<uint64_t>(width) * height;
 
   std::vector<double> out = {0,0,0,0}; 
-    
+  
   /*  if (verbose)
       std::cerr << "...starting image " <<
       ifd << " with " << AddCommas(static_cast<uint64_t>(np)) <<
@@ -188,6 +187,11 @@ std::vector<double> TiffIFD::mean() {
 	      case 32:
 		out[3] += static_cast<uint32_t*>(buf)[ty * tile_width + tx];	      
 		break;
+	      case 16:
+		out[3] += static_cast<uint16_t*>(buf)[(ty * tile_width + tx)];
+		break;
+	      default:
+		std::cerr << "tiffo means - mode of " << static_cast<int>(mode) << " not supported " << std::endl;
 	      }
 		}
 	      } // tile x loop
@@ -224,17 +228,23 @@ std::vector<double> TiffIFD::mean() {
 	      out[1] += static_cast<uint8_t*>(buf)[x * 3 + 1];
 	      out[2] += static_cast<uint8_t*>(buf)[x * 3 + 2];
 	      break;
-	    case 4:
+	    case 32:
 	      out[3] += static_cast<uint32_t*>(buf)[x];	      
 	      break;
+	    case 16:
+	      out[3] += static_cast<uint16_t*>(buf)[x];
+	      break;
+	    default:
+	      std::cerr << "tiffo means - mode of " << static_cast<int>(mode) << " not supported " << std::endl;
 	    }
 	  } // x loop
 	} // y loop
       } //scanline else
 
   // get the mean
-  for (auto& a : out)
+  for (auto& a : out) {
     a /= np;
+  }
 
   // and put it back
   TIFFSetDirectory(m_tif, tmp_dir); 

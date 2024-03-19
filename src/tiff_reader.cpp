@@ -2,6 +2,7 @@
 
 void TiffReader::print_means() {
 
+  std::cerr << " num dirs " << m_num_dirs << std::endl;
   for (int i = 0; i < m_num_dirs; i++) {
 
     TiffIFD& ifd = m_ifds[i];
@@ -9,14 +10,24 @@ void TiffReader::print_means() {
     uint8_t mode = ifd.GetMode();
 
     switch(mode) {
+    case 32:
+      std::cout << "Dir " << i << " Mean: " << ifd.mean()[3] << std::endl;
+      break;
+    case 16:
+      std::cout << "Dir " << i << " Mean: " << ifd.mean()[3] << std::endl;      
+      break;
     case 8:
-      std::cout << "Mean: " << ifd.mean()[3] << std::endl;
+      std::cout << "Dir " << i << " Mean: " << ifd.mean()[3] << std::endl;            
       break;
     case 3:
+      {
       std::vector<double> d = ifd.mean();
       std::cout << "Mean: (R) " << d[0] << " (G) " << d[1] <<
 	" (B) " << d[2] << std::endl;
+      }
       break;
+    default:
+      std::cerr << "tiffo means - mode of " << static_cast<int>(mode) << " not supported " << std::endl;
     }
     
   }
@@ -25,7 +36,7 @@ void TiffReader::print_means() {
 }
 
 TiffReader::TiffReader(const char* c) {
-  
+
   m_tif = std::shared_ptr<TIFF>(TIFFOpen(c, "rm"), TIFFClose);
   
   // Open the input TIFF file
@@ -40,12 +51,14 @@ TiffReader::TiffReader(const char* c) {
   // set the filename
   m_filename = std::string(c);
   
-  // set the IFDs
+  // store the pointers to the individual directories
   for (size_t i = 0; i < m_num_dirs; i++) {
-    TIFFSetDirectory(m_tif.get(), i);
+    assert(TIFFSetDirectory(m_tif.get(), i));
     m_ifds.push_back(TiffIFD(m_tif.get()));
+    //std::cerr << " getting pointer for " << i << " with value " << m_ifds.back() << std::endl;    
   }
-  TIFFSetDirectory(m_tif.get(), 0);
+  // set back to 0
+  assert(TIFFSetDirectory(m_tif.get(), 0));
   
 }
 

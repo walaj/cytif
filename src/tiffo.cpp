@@ -134,7 +134,6 @@ static int findmean(int argc, char** argv) {
     return 1;
   }
 
-  
   // open a tiff
   // the "m" keeps it from being memory mapped, which for
   // a single pass just causes memory overruns from the C memmap func

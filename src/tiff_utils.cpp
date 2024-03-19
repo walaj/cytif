@@ -11,6 +11,29 @@
 
 #include "channel.h"
 
+// Macro to get a TIFF tag from the input and set it on the output.
+// Assumes `in` is the source TIFF* and `out` is the destination TIFF*.
+#define COPY_TIFF_TAG(in, out, TAG, var) \
+  if (TIFFGetField(in, TAG, &var)) { \
+    assert(TIFFSetField(out, TAG, var)); \
+    std::cerr << "...set tag " << #TAG << " to " << static_cast<long>(var) << std::endl; \
+  } else { \
+    std::cerr << "...unable to set " << #TAG << " -- not read in input" << std::endl; \
+  }
+
+#define COPY_TIFF_TAG_ASCII(in, out, TAG, var) \
+  if (TIFFGetField(in, TAG, &var)) { \
+    assert(TIFFSetField(out, TAG, var)); \
+  } else { \
+    std::cerr << "...unable to set " << #TAG << " -- not read in input" << std::endl; \
+  }
+
+
+#define COPY_TIFF_TAG_QUIET(in, out, TAG, var) \
+  if (TIFFGetField(in, TAG, &var)) { \
+    assert(TIFFSetField(out, TAG, var)); \
+  } 
+
 uint8_t affineTransformUint8(uint64_t value, uint64_t A, uint64_t B) {
   
   // Calculate the scaling factor
@@ -111,41 +134,108 @@ int Compress(TIFF* in, TIFF* out) {
   for (int n = 0; n < num_dir; n++) {
     
     TIFFSetDirectory(in, n);
-    std::cerr << "...working on directory " << n << std::endl;
-    
-    uint32_t m_height = 0;
-    uint32_t m_width = 0;
-    
-    if (!TIFFGetField(in, TIFFTAG_IMAGEWIDTH, &m_width)) {
-      std::cerr << " ERROR getting image width " << std::endl;
-      return 1;
-    }
-    if (!TIFFGetField(in, TIFFTAG_IMAGELENGTH, &m_height)) {
-      std::cerr << " ERROR getting image height " << std::endl;
-      return 1;
-    }
 
+
+    // Create a new directory for the output file
+    if (n > 0) {  // No need to create the first directory, it's automatically created
+      // Finalize the previous directory and create new one
+      if (!TIFFWriteDirectory(out)) {
+	std::cerr << "Error: Could not write output directory " << n << std::endl;
+	return 1;
+      }
+    }
+    
+    // get and copy image dimensions
+    uint32_t m_height = 0;
+    uint32_t m_width = 0;    
+    COPY_TIFF_TAG(in, out, TIFFTAG_IMAGEWIDTH, m_width);
+    COPY_TIFF_TAG(in, out, TIFFTAG_IMAGELENGTH, m_height);
+    
+    std::cerr << "...working on directory " << n << " - " << m_height << "x" << m_width << std::endl;
+    
+    // get and copy photmetric etc
+    uint16_t bitsPerSample = 0, sampleFormat = 0, samplesPerPixel = 0, photometric = 0, config = 0;
+    COPY_TIFF_TAG(in, out, TIFFTAG_SAMPLEFORMAT, sampleFormat);
+    COPY_TIFF_TAG(in, out, TIFFTAG_PHOTOMETRIC, photometric);
+    COPY_TIFF_TAG(in, out, TIFFTAG_PLANARCONFIG, config);
+    COPY_TIFF_TAG(in, out, TIFFTAG_SAMPLESPERPIXEL, samplesPerPixel);
+    COPY_TIFF_TAG(in, out, TIFFTAG_BITSPERSAMPLE, bitsPerSample);
+    assert(photometric == PHOTOMETRIC_MINISBLACK);
+    assert(bitsPerSample == 16);
+    assert(samplesPerPixel == 1);
+    assert(config == PLANARCONFIG_CONTIG);
+
+    // copy other
+    long subfile_type = 0, osubfile_type;
+    uint8_t thresholding = 0;
+    COPY_TIFF_TAG(in, out, TIFFTAG_SUBFILETYPE, subfile_type);
+    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_OSUBFILETYPE, osubfile_type);
+    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_THRESHHOLDING, thresholding);    
+
+    // image description
+    char* des_buffer = nullptr;
+    COPY_TIFF_TAG_ASCII(in, out, TIFFTAG_IMAGEDESCRIPTION, des_buffer);
+    
+    // compression
+    uint8_t compression = 0;
+    COPY_TIFF_TAG(in, out, TIFFTAG_COMPRESSION, compression);
+
+    // strip offsets
+    long rows_per_strip = 0;    
+    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_ROWSPERSTRIP, rows_per_strip);
+    long strips_per_image = 0;
+    if (rows_per_strip)
+      strips_per_image = std::floor((m_height + rows_per_strip - 1) / rows_per_strip);
+    // missing STRIPOFFSETS
+    // missing STRIPBYTECOUNTS
+    
+    // fill order
+    uint8_t fillorder = 0;
+    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_FILLORDER, fillorder);
+
+    // copy orientation
+    //ORIENTATION_TOPLEFT = 1;
+    //ORIENTATION_TOPRIGHT = 2;
+    //ORIENTATION_BOTRIGHT = 3;
+    //ORIENTATION_BOTLEFT = 4;
+    //ORIENTATION_LEFTTOP = 5;
+    //ORIENTATION_RIGHTTOP = 6;
+    //ORIENTATION_RIGHTBOT = 7;
+    //ORIENTATION_LEFTBOT = 8;
+    uint16_t orientation = 0;
+    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_ORIENTATION, orientation);
+    //std::cerr <<"Orientation " << orientation << std::endl;
+
+    // pages
+    uint16_t npages = 0;
+    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_PAGENUMBER, npages);
+    //std::cerr << " page number " << npages << std::endl;
+
+    // resolution
+    float xres = 0, yres = 0;
+    uint16_t resunit = 0;
+    // NB: these are the meanings of the resolution units
+    //RESUNIT_NONE = 1;
+    //RESUNIT_INCH = 2;
+    //RESUNIT_CENTIMETER = 3;
+    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_XRESOLUTION, xres);
+    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_YRESOLUTION, yres);
+    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_RESOLUTIONUNIT, resunit);
+    
     // debug
     std::cerr << "...height " << m_height << " width " << m_width << std::endl;
     
     if (TIFFIsTiled(in)) {
-      
-      uint32_t tileheight = 0;
-      uint32_t tilewidth = 0;
-      
-      if (!TIFFGetField(in, TIFFTAG_TILEWIDTH, &tilewidth)) {
-	std::cerr << " ERROR getting tile width " << std::endl;
-	return 1;
-      }
-      if (!TIFFGetField(in, TIFFTAG_TILELENGTH, &tileheight)) {
-	std::cerr << " ERROR getting tile height " << std::endl;
-	return 1;
-      }
+
+      // copy tile info
+      uint32_t tileheight = 0, tilewidth = 0;
+      COPY_TIFF_TAG(in, out, TIFFTAG_TILEWIDTH, tilewidth);
+      COPY_TIFF_TAG(in, out, TIFFTAG_TILELENGTH, tileheight);
       
       uint64_t ts = TIFFTileSize(in);
       
       // allocate memory for a single tile
-      uint16_t* itile = (uint16_t*)calloc(ts / 2, sizeof(uint16_t));
+      uint16_t* itile = (uint16_t*)calloc(ts/ 2, sizeof(uint16_t));
       
       if (itile == nullptr) {
 	std::cerr << "Memory allocation for channels failed." << std::endl;
@@ -155,7 +245,7 @@ int Compress(TIFF* in, TIFF* out) {
       // allocated the output tile
       void*     otile = (void*)calloc(ts / 2, sizeof(uint16_t));  // div by 2 because uint16
       
-    // loop through the tiles
+      // loop through the tiles
       uint64_t x, y;
       uint64_t m_pix = 0;
       for (y = 0; y < m_height; y += tileheight) {
@@ -174,7 +264,7 @@ int Compress(TIFF* in, TIFF* out) {
 	  }
       
 	  // if mean is above threshold, then copy data
-	  if (sum / ts * 2 >= 10)
+	  if (sum / ts * 2 >= 20)
 	    memcpy(otile, itile, (ts / 2) * sizeof(uint16_t));
 	  
 	  // Write the tile to the TIFF file
@@ -189,11 +279,15 @@ int Compress(TIFF* in, TIFF* out) {
       free(otile);
       free(itile);
 
-      assert(TIFFWriteDirectory(out));
     } // end tiff tiled?
-
     
   } // end channel loop
+
+  if (!TIFFWriteDirectory(out)) {
+    std::cerr << "Could not write final output directory " << std::endl;
+    return 1;
+  }
+  
   return 0;
 }
 
@@ -326,7 +420,7 @@ int Colorize(TIFF* in, TIFF* out, const std::string& palette_file,
 	std::cerr << "...working on tile " << tile_num << " of " << num_tiles << std::endl;
       for (x = 0; x < m_width; x += tilewidth) {
 	tile_num++;
-	// copy in the tiles from channels
+	// copy in the 3tiles from channels
 	size_t channel_num = 0;
 	for (const auto& m : channels_to_run) {
 	  
