@@ -191,7 +191,6 @@ int tiffcp(TIFF* in, TIFF* out, bool verbose) {
     break;
   }
   TIFFSetField(out, TIFFTAG_ORIENTATION, orientation);
-  
 
   /*
    * Choose tiles/strip for the output image according to
@@ -453,7 +452,6 @@ int tiffcp2(TIFF* in, TIFF* out, bool verbose) {
   }
   TIFFSetField(out, TIFFTAG_ORIENTATION, orientation);
   
-
   /*
    * Choose tiles/strip for the output image according to
    * the command line arguments (-tiles, -strips) and the
@@ -502,7 +500,6 @@ int tiffcp2(TIFF* in, TIFF* out, bool verbose) {
   if (samplesperpixel <= 4)
     CopyTag(TIFFTAG_TRANSFERFUNCTION, 4, TIFF_SHORT);
   CopyTag(TIFFTAG_COLORMAP, 4, TIFF_SHORT);
-
 
   //
   // compression
@@ -577,10 +574,10 @@ int tiffcp2(TIFF* in, TIFF* out, bool verbose) {
 
   size_t ntags = sizeof (tags) / sizeof (tags[0]);
   for (p = tags; p < &tags[ntags]; p++) {
-    if (verbose)
-      fprintf(stderr, "copying tag: %-21s %-5d %-20s\n",
-	      tiffTagNames.at(p->tag).c_str(),
-	      p->count, dataTypeNames.at(p->type).c_str());
+    //if (verbose)
+    fprintf(stderr, "copying tag: %-21s %-5d %-20s\n",
+	    tiffTagNames.at(p->tag).c_str(),
+	    p->count, dataTypeNames.at(p->type).c_str());
     CopyTag(p->tag, p->count, p->type);
   }
 

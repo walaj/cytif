@@ -224,9 +224,8 @@ static int compress(int argc, char** argv) {
     fprintf(stderr, "Error opening %s for writing\n", opt::outfile.c_str());
     return 1;
   }
-  
   // copy all of the tags from in to out
-  tiffcp2(r_itif, otif, false);
+    //tiffcp2(r_itif, otif, false);
 
   Compress(r_itif, otif);
   
