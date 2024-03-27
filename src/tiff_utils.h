@@ -19,6 +19,7 @@ using funcmm_t = double (*)(uint8_t*, size_t); // mean vs mode function object
 
 int MergeGrayToRGB(TIFF* in, TIFF* out);
 int Compress(TIFF* in, TIFF* out);
+int Mask(TIFF* in, TIFF* out);
 int Colorize(TIFF* in, TIFF* out, const std::string& palette_file,
 	     const std::vector<int>& channels_to_run,
 	     bool verbose);

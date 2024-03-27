@@ -52,7 +52,7 @@ static const struct option longopts[] = {
 };
 
 static const char *RUN_USAGE_MESSAGE =
-"Usage: tiffo [module] <options> infile outfile\n"
+"Usage: cytif [module] <options> infile outfile\n"
 "Modules:\n"
 "  compress - Zero out noise-only tiles for better compression\n"
 "  gray2rgb - Convert a 3-channel gray TIFF to a single RGB\n"
@@ -126,7 +126,7 @@ static int findmean(int argc, char** argv) {
   if (die || in_only_process(argc, argv)) {
     
     const char *USAGE_MESSAGE =
-      "Usage: tiffo findmean [tiff] <options>\n"
+      "Usage: cytif findmean [tiff] <options>\n"
       "  Print the mean pixel value of a TIFF\n"
       "  -v, --verbose             Increase output to stderr"
       "\n";
@@ -160,7 +160,7 @@ static int gray2rgb(int argc, char** argv) {
   if (die || in_out_process(argc, argv)) {
     
     const char *USAGE_MESSAGE =
-      "Usage: tiffo gray2rgb [tiff] [tiff out] <options>\n"
+      "Usage: cytif gray2rgb [tiff] [tiff out] <options>\n"
       "  Convert a 3-channel grayscale image (8-bit) to RGB\n"
       "  -v, --verbose             Increase output to stderr\n"
       "\n";
@@ -206,7 +206,7 @@ static int compress(int argc, char** argv) {
   if (die || in_out_process(argc, argv)) {
     
     const char *USAGE_MESSAGE =
-      "Usage: tiffo compress [tiff in] [tiff out] <options>\n"
+      "Usage: cytif compress [tiff in] [tiff out] <options>\n"
       "  Zero out tiles with low signal, to improve compression ratio\n"
       "  -v, --verbose             Increase output to stderr\n"
       "\n";
@@ -224,10 +224,8 @@ static int compress(int argc, char** argv) {
     fprintf(stderr, "Error opening %s for writing\n", opt::outfile.c_str());
     return 1;
   }
-  // copy all of the tags from in to out
-    //tiffcp2(r_itif, otif, false);
 
-  Compress(r_itif, otif);
+  Mask(r_itif, otif);
   
   TIFFClose(r_itif);
   TIFFClose(otif);
@@ -263,7 +261,7 @@ static int colorize(int argc, char** argv) {
 
   if (die || in_out_process(argc, argv)) {
     const char *USAGE_MESSAGE =
-      "Usage: tiffo colorize [16-bit tiff] [rgb tiff] <options>\n"
+      "Usage: cytif colorize [16-bit tiff] [rgb tiff] <options>\n"
       "  Color a 16-bit multichannel tiff to certain channels and with pre-specified palette\n"
       "    -c                Comma-separated list of channels (e.g. 0,1,4,5)\n"
       "    -p                Palette file of format: number,name,r,g,b,lower,upper\n"

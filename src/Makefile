@@ -36,13 +36,13 @@ CFLAGS = -g -std=c++17 -I.. $(TIFF)
 LDFLAGS = $(TIFFLD) $(JPEG) -lz $(LSTD)
 
 # Specify the source files
-SRCS = tiffo.cpp tiff_header.cpp tiff_image.cpp tiff_cp.cpp tiff_reader.cpp tiff_ifd.cpp tiff_utils.cpp tiff_writer.cpp channel.cpp
+SRCS = cytif.cpp tiff_header.cpp tiff_image.cpp tiff_cp.cpp tiff_reader.cpp tiff_ifd.cpp tiff_utils.cpp tiff_writer.cpp channel.cpp
 
 # Specify the object files
 OBJS = $(SRCS:.cpp=.o)
 
 # Specify the executable file
-EXEC = tiffo
+EXEC = cytif
 
 # The default target
 all: $(EXEC)

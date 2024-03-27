@@ -1,44 +1,45 @@
 #include "tiff_utils.h"
+#include "tiff_cp.h"
 #include <cassert>
 #include <iostream>
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <unordered_set>
 #include <cstring>
-
-#include <algorithm> // for std::min and std::max
+#include <algorithm> // for std::min and std::max and std::fill_n
 #include <cstdint>   // for uint16_t and uint8_t
 
 #include "channel.h"
 
-#define MEAN_THRESHOLD 200
-#define DIFF_THRESHOLD 100
+#define MEAN_THRESHOLD 300
+#define DIFF_THRESHOLD 300
+
+// Define the struct with x and y members
+struct Point {
+    int x, y;
+  
+  // Equality comparison operator is needed for unordered_set
+  bool operator==(const Point& other) const {
+    return x == other.x && y == other.y;
+  }
+};
+
+// Specialize std::hash for the Point struct
+namespace std {
+  template<>
+  struct hash<Point> {
+    std::size_t operator()(const Point& p) const noexcept {
+      // Combine the hash of x and y in some way.
+      // A common approach is to use std::hash<int>() and then combine them.
+      // This example uses the shifting method to combine hashes but there are better methods.
+      return std::hash<int>()(p.x) ^ (std::hash<int>()(p.y) << 1);
+    }
+  };
+}
 
 // Macro to get a TIFF tag from the input and set it on the output.
 // Assumes `in` is the source TIFF* and `out` is the destination TIFF*.
-#define COPY_TIFF_TAG(in, out, TAG, var) \
-  if (TIFFGetField(in, TAG, &var)) { \
-    assert(TIFFSetField(out, TAG, var)); \
-  } else { \
-    std::cerr << "...unable to set " << #TAG << " -- not read in input" << std::endl; \
-  }
-
-#define COPY_TIFF_TAG_ASCII(in, out, TAG, var) \
-  if (TIFFGetField(in, TAG, &var)) { \
-    assert(TIFFSetField(out, TAG, var)); \
-  } else { \
-    std::cerr << "...unable to set " << #TAG << " -- not read in input" << std::endl; \
-  }
-
-#define COPY_TIFF_TAG_ASCII_QUIET(in, out, TAG, var) \
-  if (TIFFGetField(in, TAG, &var)) { \
-    assert(TIFFSetField(out, TAG, var)); \
-  }
-
-#define COPY_TIFF_TAG_QUIET(in, out, TAG, var) \
-  if (TIFFGetField(in, TAG, &var)) { \
-    assert(TIFFSetField(out, TAG, var)); \
-  } 
 
 uint8_t affineTransformUint8(uint64_t value, uint64_t A, uint64_t B) {
   
@@ -130,11 +131,14 @@ static void __gray8assert(TIFF* in) {
   
 }
 
-int Compress(TIFF* in, TIFF* out) {
+int Mask(TIFF* in, TIFF* out) {
 
   // display number of directories / channels
   int num_dir = TIFFNumberOfDirectories(in);
   std::cerr << "Number of channels in image: " << num_dir << std::endl;
+
+  // vector index is channel num
+  std::vector<std::unordered_set<Point>> xy_to_keep;
   
   // loop each channel
   for (int n = 0; n < num_dir; n++) {
@@ -144,6 +148,7 @@ int Compress(TIFF* in, TIFF* out) {
     
     TIFFSetDirectory(in, n);
 
+#ifdef WRITEOUT    
     // Create a new directory for the output file
     if (n > 0) {  // No need to create the first directory, it's automatically created
       // Finalize the previous directory and create new one
@@ -152,135 +157,30 @@ int Compress(TIFF* in, TIFF* out) {
 	return 1;
       }
     }
-    
-    // get and copy image dimensions
-    uint64_t m_height = 0;
-    uint64_t m_width = 0;    
-    COPY_TIFF_TAG(in, out, TIFFTAG_IMAGEWIDTH, m_width);
-    COPY_TIFF_TAG(in, out, TIFFTAG_IMAGELENGTH, m_height);
-    
-    // get and copy photmetric etc
-    uint16_t bitsPerSample = 0, sampleFormat = 0, samplesPerPixel = 0;
-    uint16_t photometric = 0, planar_config = 0;
-    COPY_TIFF_TAG(in, out, TIFFTAG_SAMPLEFORMAT, sampleFormat);
-    COPY_TIFF_TAG(in, out, TIFFTAG_PHOTOMETRIC, photometric);
-    COPY_TIFF_TAG(in, out, TIFFTAG_PLANARCONFIG, planar_config);
-    COPY_TIFF_TAG(in, out, TIFFTAG_SAMPLESPERPIXEL, samplesPerPixel);
-    COPY_TIFF_TAG(in, out, TIFFTAG_BITSPERSAMPLE, bitsPerSample);
-    assert(photometric == PHOTOMETRIC_MINISBLACK);
-    assert(bitsPerSample == 16);
-    assert(samplesPerPixel == 1);
-    assert(planar_config == PLANARCONFIG_CONTIG);
-    
-    // copy other
-    uint32_t subfile_type = 0, osubfile_type;
-    uint8_t thresholding = 0;
-    COPY_TIFF_TAG(in, out, TIFFTAG_SUBFILETYPE, subfile_type);
-    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_OSUBFILETYPE, osubfile_type);
-    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_THRESHHOLDING, thresholding);    
 
-    // image description
-    char* des_buffer = nullptr;
-    COPY_TIFF_TAG_ASCII_QUIET(in, out, TIFFTAG_IMAGEDESCRIPTION, des_buffer);
-    
-    // compression
-    uint8_t compression = 0;
-    COPY_TIFF_TAG(in, out, TIFFTAG_COMPRESSION, compression);
+    // copy fields
+    tiffcpjw(in, out);
 
-    // fill order
-    uint8_t fillorder = 0;
-    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_FILLORDER, fillorder);
-
-    // cell width and length (probably not used)
-    //The width of the dithering or halftoning matrix used to create a dithered or halftoned bilevel file.
-    //This field should only be present if Threshholding = 2
-    uint8_t cell_width = 0, cell_length = 0;
-    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_CELLWIDTH, cell_width);
-    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_CELLLENGTH, cell_length);    
-
-    // make and model if used
-    char* mmake = nullptr;
-    char* mmodel = nullptr;
-    COPY_TIFF_TAG_ASCII_QUIET(in, out, TIFFTAG_MAKE, mmake);
-    COPY_TIFF_TAG_ASCII_QUIET(in, out, TIFFTAG_MODEL, mmodel);
-
-    // min and max sample value. N = SamplesPerPixel
-    uint8_t min_sample_value = 0, max_sample_value = 0;
-    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_MINSAMPLEVALUE, min_sample_value);
-    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_MAXSAMPLEVALUE, max_sample_value);
-
-    // gray response curve (the precision of the info in the GrayResponseCurve)
-    uint8_t gray_response_unit = 0;
-    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_GRAYRESPONSEUNIT, gray_response_unit);
-    // missing GRAYRESPONSECURVE
-
-    // software
-    char* software = nullptr;
-    COPY_TIFF_TAG_ASCII_QUIET(in, out, TIFFTAG_SOFTWARE, software);
-
-    // date time
-    char* date_time = nullptr;
-    COPY_TIFF_TAG_ASCII_QUIET(in, out, TIFFTAG_DATETIME, date_time);
-
-    // other ascii
-    char* artist = nullptr;
-    char* host_computer = nullptr;
-    char* copyright = nullptr;    
-    COPY_TIFF_TAG_ASCII_QUIET(in, out, TIFFTAG_ARTIST, artist);
-    COPY_TIFF_TAG_ASCII_QUIET(in, out, TIFFTAG_HOSTCOMPUTER, host_computer);
-    COPY_TIFF_TAG_ASCII_QUIET(in, out, TIFFTAG_COPYRIGHT, copyright);    
-
-    // Missing COLORMAP
-    // Missing EXTRASAMPLES
-
-    // copy orientation
-    //ORIENTATION_TOPLEFT = 1;
-    //ORIENTATION_TOPRIGHT = 2;
-    //ORIENTATION_BOTRIGHT = 3;
-    //ORIENTATION_BOTLEFT = 4;
-    //ORIENTATION_LEFTTOP = 5;
-    //ORIENTATION_RIGHTTOP = 6;
-    //ORIENTATION_RIGHTBOT = 7;
-    //ORIENTATION_LEFTBOT = 8;
-    uint16_t orientation = 0;
-    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_ORIENTATION, orientation);
-    //std::cerr <<"Orientation " << orientation << std::endl;
-
-    // pages
-    uint16_t npages = 0;
-    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_PAGENUMBER, npages);
-    //std::cerr << " page number " << npages << std::endl;
-
-    // resolution
-    float xres = 0, yres = 0;
-    uint16_t resunit = 0;
-    // NB: these are the meanings of the resolution units
-    //RESUNIT_NONE = 1;
-    //RESUNIT_INCH = 2;
-    //RESUNIT_CENTIMETER = 3;
-    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_XRESOLUTION, xres);
-    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_YRESOLUTION, yres);
-    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_RESOLUTIONUNIT, resunit);
-
-    ///////
-    /// EXTENSION TAGS
-    //////
-    char* document_name = nullptr;
-    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_DOCUMENTNAME, document_name);
-
-    char* page_name = nullptr;
-    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_PAGENAME, page_name);
-
-    //Missing XPOSITION, YPOSITION (rational)
-    
     assert(TIFFSetField(out, TIFFTAG_COMPRESSION, COMPRESSION_LZW));
-
+#else
+    // get image dimensions
+    uint64_t m_height = 0;
+    uint64_t m_width = 0;
+    TIFFGetField(in, TIFFTAG_IMAGEWIDTH, &m_width);
+    TIFFGetField(in, TIFFTAG_IMAGELENGTH, &m_height);
+#endif
+    
     if (TIFFIsTiled(in)) {
 
       // copy tile info
       uint64_t tileheight = 0, tilewidth = 0;
+#ifdef WRITEOUT      
       COPY_TIFF_TAG(in, out, TIFFTAG_TILEWIDTH, tilewidth);
       COPY_TIFF_TAG(in, out, TIFFTAG_TILELENGTH, tileheight);
+#else
+      TIFFGetField(in, TIFFTAG_TILEWIDTH, &tilewidth);
+      TIFFGetField(in, TIFFTAG_TILELENGTH, &tileheight);
+#endif
       
       // tile calculation
       assert(tileheight);
@@ -289,40 +189,14 @@ int Compress(TIFF* in, TIFF* out) {
       uint32_t tiles_down   = (m_height + tileheight - 1) / tileheight;
       uint32_t tiles_per_image = tiles_across * tiles_down;
 
-      // tile offsets and byte counts
-      // bytes counts is number of (compressed) bytes per tile
-      int num_offset = tiles_per_image;
-      num_offset = num_offset * (planar_config == 1 ? 1 : samplesPerPixel);
-      if (TIFFIsBigTIFF(in)) {
-	uint64_t* offsets = nullptr;
-	uint64_t* bytecounts = nullptr;
-	TIFFGetField(in, TIFFTAG_TILEOFFSETS, &offsets);
-	TIFFGetField(in, TIFFTAG_TILEBYTECOUNTS, &bytecounts);	
-	//for (size_t i = 0; i < num_offset; ++i) {
-	//  std::cout << "Tile " << i << " offset: " << offsets[i] << " " << bytecounts[i] << std::endl;
-	//}
-      } else  {
-	uint32_t* offsets = nullptr;
-	uint64_t* bytecounts = nullptr;	
-	TIFFGetField(in, TIFFTAG_TILEOFFSETS, &offsets);
-	TIFFGetField(in, TIFFTAG_TILEOFFSETS, &bytecounts);	
-	//	for (size_t i = 0; i < num_offset; ++i) {
-	// std::cout << "Tile " << i << " offset: " << offsets[i] << " " << bytecounts[i] << std::endl;	  
-	//}
-      }
-      
       uint64_t ts = TIFFTileSize(in);
       
       // allocate memory for a single tile
       uint16_t* itile = (uint16_t*)calloc(ts/ 2, sizeof(uint16_t));
-      
       if (itile == nullptr) {
 	std::cerr << "Memory allocation for channels failed." << std::endl;
 	assert(false);
       }
-      
-      // allocated the output tile
-      void*     otile = (void*)calloc(ts / 2, sizeof(uint16_t));  // div by 2 because uint16
       
       // loop through the tiles
       uint64_t x, y;
@@ -340,13 +214,16 @@ int Compress(TIFF* in, TIFF* out) {
 
 	  // sort a copy of this array to get quantiles
 	  int arrSize = ts / 2;
-	  uint16_t arrCopy[arrSize];
+	  //uint16_t arrCopy[arrSize];
+	  uint16_t* arrCopy = new uint16_t[arrSize];
 	  std::memcpy(arrCopy, itile, arrSize * sizeof(uint16_t)); 
 	  std::sort(arrCopy, arrCopy + arrSize);
 
-	  uint16_t percentile_90 = arrCopy[static_cast<int>(0.9 * arrSize)];
-	  uint16_t percentile_10 = arrCopy[static_cast<int>(0.1 * arrSize)];
-	  uint16_t diff = percentile_90 - percentile_10;
+	  uint16_t percentile_95 = arrCopy[static_cast<int>(0.95 * arrSize)];
+	  uint16_t percentile_5 = arrCopy[static_cast<int>(0.05 * arrSize)];
+	  uint16_t diff = percentile_95 - percentile_5;
+
+	  delete[] arrCopy;
 	  
 	  // get the mean for the tile
 	  uint64_t sum = 0;
@@ -356,11 +233,37 @@ int Compress(TIFF* in, TIFF* out) {
 
 	  // if mean is above threshold, then copy data
 	  if ( (sum / arrSize) >= MEAN_THRESHOLD || diff > DIFF_THRESHOLD) {
-	    memcpy(otile, itile, (arrSize) * sizeof(uint16_t));
+	    //memcpy(otile, itile, (arrSize) * sizeof(uint16_t));
+	    // OLD // std::fill_n(otile, arrSize, static_cast<uint8_t>(255));
+
+	    //Note that std::memset sets every byte to the specified value.
+	    // If otile actually points to an array of uint16_t,
+	    // and you use std::memset(otile, 255, arrSize * sizeof(uint16_t));
+	    //each byte is set to 0xFF, meaning that each uint16_t element will
+	    //be 0xFFFF because memset works on a byte level.
+	    
+	    Point p;
+	    p.x = x;
+	    p.y = y;
+	    
+	    // this is a GOOD tile
+	    if (n == xy_to_keep.size()) {
+	      std::unordered_set<Point> pair;
+	      pair.insert(p);
+	      xy_to_keep.push_back(pair);
+	    } else {
+	      xy_to_keep[n].insert(p);
+	    }
+
+	    std::cerr << " keeping " << x << "," << y << " Mean " <<
+	      (sum / arrSize) << " diff " << diff << std::endl;
 	  } else {
-	  std::cerr << " mean: " << (sum / arrSize)  << " 10% " <<
-	    percentile_10 << " 90% " << percentile_90 <<  " diff " <<
+	    std::cerr << " mean: " << (sum / arrSize)  << " 5% " <<
+	    percentile_5 << " 9% " << percentile_95 <<  " diff " <<
 	    diff << std::endl;
+#ifdef WRITEOUT	    
+	    std::memset(otile, 255, arrSize * sizeof(uint8_t));
+#endif	    
 	    drop++;
 	  }
 
@@ -369,57 +272,92 @@ int Compress(TIFF* in, TIFF* out) {
 	  
 	  // Write the tile to the TIFF file
 	  // this function will automatically calculate memory size from TIFF tags
+#ifdef WRITEOUT	  
 	  if (TIFFWriteTile(out, otile, x, y, 0, 0) < 0) { 
 	    fprintf(stderr, "Error writing tile at (%llu, %llu)\n", x, y);
 	    return 1;
 	  }
+#endif	  
 	} // end x loop
       } // end y loop
 
+#ifdef WRITEOUT      
       std::cerr << "...finished channel " << n << " - " <<
 	m_height << " x " << m_width << 
 	" drop rate " << (drop/num_tiles) << std::endl;
-      
       free(otile);
+#endif      
       free(itile);
       
-      // tile offsets and byte counts
-      // bytes counts is number of (compressed) bytes per tile
-      num_offset = num_offset * (planar_config == 1 ? 1 : samplesPerPixel);
-      if (TIFFIsBigTIFF(out)) {
-	uint64_t* offsets = nullptr;
-	uint64_t* bytecounts = nullptr;
-	TIFFGetField(out, TIFFTAG_TILEOFFSETS, &offsets);
-	TIFFGetField(out, TIFFTAG_TILEBYTECOUNTS, &bytecounts);	
-	//for (size_t i = 0; i < num_offset; ++i) {
-	//  std::cout << "BIG TIFF OUT Tile " << i << " offset: " << offsets[i] << " " << bytecounts[i] << std::endl;
-	//	}
-      } else  {
-	uint32_t* offsets = nullptr;
-	uint64_t* bytecounts = nullptr;	
-	TIFFGetField(out, TIFFTAG_TILEOFFSETS, &offsets);
-	TIFFGetField(out, TIFFTAG_TILEOFFSETS, &bytecounts);	
-	//for (size_t i = 0; i < num_offset; ++i) {
-	  //std::cout << "REG TIFF OUT Tile " << i << " offset: " << offsets[i] << " " << bytecounts[i] << std::endl;	  
-	//}
-      }
-      
     } // end tiff tiled?
-
+    
     // not implemented yet, but this is TIFF is row
     else {
+#ifdef WRITEOUT      
       // strip offsets
       uint32_t rows_per_strip = 0;    
       COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_ROWSPERSTRIP, rows_per_strip);
       uint32_t strips_per_image = 0;
       if (rows_per_strip)
 	strips_per_image = std::floor((m_height + rows_per_strip - 1) / rows_per_strip);
+#endif      
       // missing STRIPOFFSETS
       // missing STRIPBYTECOUNTS
     }
-    
+    break; // debug
   } // end channel loop
 
+  // loop
+
+  ///////
+  // write the image
+  ///////
+
+  // copy the tifftags
+  TIFFSetDirectory(in, 0);
+  tiffcpjw(in, out);
+
+  TIFFSetField(out, TIFFTAG_SAMPLEFORMAT, SAMPLEFORMAT_UINT);
+  TIFFSetField(out, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_MINISBLACK);
+  TIFFSetField(out, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
+  TIFFSetField(out, TIFFTAG_SAMPLESPERPIXEL, 1);
+  TIFFSetField(out, TIFFTAG_BITSPERSAMPLE, 8);
+
+  // get image dimensions
+  uint64_t m_height = 0;
+  uint64_t m_width = 0;
+  TIFFGetField(in, TIFFTAG_IMAGEWIDTH, &m_width);
+  TIFFGetField(in, TIFFTAG_IMAGELENGTH, &m_height);
+  
+  // get tile sizes
+  uint64_t ts = TIFFTileSize(in);
+  uint64_t tileheight = 0, tilewidth = 0;
+  COPY_TIFF_TAG(in, out, TIFFTAG_TILEWIDTH, tilewidth);
+  COPY_TIFF_TAG(in, out, TIFFTAG_TILELENGTH, tileheight);
+  
+  // loop through the tiles
+  uint64_t x, y;
+  uint64_t m_pix = 0;
+  size_t num_tiles = 0;
+  for (y = 0; y < m_height; y += tileheight) {
+    for (x = 0; x < m_width; x += tilewidth) {
+      
+      // allocated the output tile
+      void* otile = (void*)calloc(ts / 2, sizeof(uint8_t));  // div by 2 because uint16
+      
+      Point p;
+      p.x = x;
+      p.y = y;
+      if (xy_to_keep[0].find(p) != xy_to_keep[0].end()) {
+	std::memset(otile, 255, ts /2 * sizeof(uint8_t));	
+      }
+      if (TIFFWriteTile(out, otile, x, y, 0, 0) < 0) { 
+	fprintf(stderr, "Error writing tile at (%llu, %llu)\n", x, y);
+	return 1;
+      }
+    }
+  }
+  
   if (!TIFFWriteDirectory(out)) {
     std::cerr << "Could not write final output directory " << std::endl;
     return 1;

@@ -2,6 +2,7 @@
 #include <string.h>
 #include <sstream>
 #include <iostream>
+#include <cassert>
 
 // copied from libtiff tiffcp.c
 #define	CopyField(tag, v) \
@@ -12,6 +13,7 @@
     if (TIFFGetField(in, tag, &v1, &v2, &v3)) TIFFSetField(out, tag, v1, v2, v3)
 #define	CopyField4(tag, v1, v2, v3, v4) \
     if (TIFFGetField(in, tag, &v1, &v2, &v3, &v4)) TIFFSetField(out, tag, v1, v2, v3, v4)
+
 
 static void
 cpTag(TIFF* in, TIFF* out, uint16_t tag, uint16_t count, TIFFDataType type)
@@ -730,4 +732,128 @@ std::string tiffprint(TIFF* tif) {
 
   return ss.str();
 
+}
+
+int tiffcpjw(TIFF* in, TIFF* out) {
+
+      // get and copy image dimensions
+    uint64_t m_height = 0;
+    uint64_t m_width = 0;
+    COPY_TIFF_TAG(in, out, TIFFTAG_IMAGEWIDTH, m_width);
+    COPY_TIFF_TAG(in, out, TIFFTAG_IMAGELENGTH, m_height);
+    
+    // get and copy photmetric etc
+    uint16_t bitsPerSample = 0, sampleFormat = 0, samplesPerPixel = 0;
+    uint16_t photometric = 0, planar_config = 0;
+    COPY_TIFF_TAG(in, out, TIFFTAG_SAMPLEFORMAT, sampleFormat);
+    COPY_TIFF_TAG(in, out, TIFFTAG_PHOTOMETRIC, photometric);
+    COPY_TIFF_TAG(in, out, TIFFTAG_PLANARCONFIG, planar_config);
+    COPY_TIFF_TAG(in, out, TIFFTAG_SAMPLESPERPIXEL, samplesPerPixel);
+    COPY_TIFF_TAG(in, out, TIFFTAG_BITSPERSAMPLE, bitsPerSample);
+    
+    //assert(photometric == PHOTOMETRIC_MINISBLACK);
+    //assert(bitsPerSample == 16);
+    //assert(samplesPerPixel == 1);
+    //assert(planar_config == PLANARCONFIG_CONTIG);
+    
+    // copy other
+    uint32_t subfile_type = 0, osubfile_type;
+    uint8_t thresholding = 0;
+    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_SUBFILETYPE, subfile_type);
+    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_OSUBFILETYPE, osubfile_type);
+    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_THRESHHOLDING, thresholding);    
+
+    // image description
+    char* des_buffer = nullptr;
+    COPY_TIFF_TAG_ASCII_QUIET(in, out, TIFFTAG_IMAGEDESCRIPTION, des_buffer);
+    
+    // compression
+    uint8_t compression = 0;
+    COPY_TIFF_TAG(in, out, TIFFTAG_COMPRESSION, compression);
+
+    // fill order
+    uint8_t fillorder = 0;
+    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_FILLORDER, fillorder);
+
+    // cell width and length (probably not used)
+    //The width of the dithering or halftoning matrix used to create a dithered or halftoned bilevel file.
+    //This field should only be present if Threshholding = 2
+    uint8_t cell_width = 0, cell_length = 0;
+    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_CELLWIDTH, cell_width);
+    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_CELLLENGTH, cell_length);    
+
+    // make and model if used
+    char* mmake = nullptr;
+    char* mmodel = nullptr;
+    COPY_TIFF_TAG_ASCII_QUIET(in, out, TIFFTAG_MAKE, mmake);
+    COPY_TIFF_TAG_ASCII_QUIET(in, out, TIFFTAG_MODEL, mmodel);
+
+    // min and max sample value. N = SamplesPerPixel
+    //uint8_t min_sample_value = 0, max_sample_value = 0;
+    //COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_MINSAMPLEVALUE, min_sample_value);
+    //COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_MAXSAMPLEVALUE, max_sample_value);
+
+    // gray response curve (the precision of the info in the GrayResponseCurve)
+    uint8_t gray_response_unit = 0;
+    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_GRAYRESPONSEUNIT, gray_response_unit);
+    // missing GRAYRESPONSECURVE
+
+    // software
+    char* software = nullptr;
+    COPY_TIFF_TAG_ASCII_QUIET(in, out, TIFFTAG_SOFTWARE, software);
+
+    // date time
+    char* date_time = nullptr;
+    COPY_TIFF_TAG_ASCII_QUIET(in, out, TIFFTAG_DATETIME, date_time);
+
+    // other ascii
+    char* artist = nullptr;
+    char* host_computer = nullptr;
+    char* copyright = nullptr;    
+    COPY_TIFF_TAG_ASCII_QUIET(in, out, TIFFTAG_ARTIST, artist);
+    COPY_TIFF_TAG_ASCII_QUIET(in, out, TIFFTAG_HOSTCOMPUTER, host_computer);
+    COPY_TIFF_TAG_ASCII_QUIET(in, out, TIFFTAG_COPYRIGHT, copyright);    
+
+    // Missing COLORMAP
+    // Missing EXTRASAMPLES
+
+    // copy orientation
+    //ORIENTATION_TOPLEFT = 1;
+    //ORIENTATION_TOPRIGHT = 2;
+    //ORIENTATION_BOTRIGHT = 3;
+    //ORIENTATION_BOTLEFT = 4;
+    //ORIENTATION_LEFTTOP = 5;
+    //ORIENTATION_RIGHTTOP = 6;
+    //ORIENTATION_RIGHTBOT = 7;
+    //ORIENTATION_LEFTBOT = 8;
+    uint16_t orientation = 0;
+    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_ORIENTATION, orientation);
+    //std::cerr <<"Orientation " << orientation << std::endl;
+
+    // pages
+    uint16_t npages = 0;
+    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_PAGENUMBER, npages);
+    //std::cerr << " page number " << npages << std::endl;
+
+    // resolution
+    float xres = 0, yres = 0;
+    uint16_t resunit = 0;
+    // NB: these are the meanings of the resolution units
+    //RESUNIT_NONE = 1;
+    //RESUNIT_INCH = 2;
+    //RESUNIT_CENTIMETER = 3;
+    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_XRESOLUTION, xres);
+    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_YRESOLUTION, yres);
+    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_RESOLUTIONUNIT, resunit);
+
+    ///////
+    /// EXTENSION TAGS
+    //////
+    char* document_name = nullptr;
+    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_DOCUMENTNAME, document_name);
+
+    char* page_name = nullptr;
+    COPY_TIFF_TAG_QUIET(in, out, TIFFTAG_PAGENAME, page_name);
+
+    return 0;
 }

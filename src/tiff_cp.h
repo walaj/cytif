@@ -1,6 +1,30 @@
 #ifndef TIFF_COPY_H
 #define TIFF_COPY_H
 
+#define COPY_TIFF_TAG(in, out, TAG, var) \
+  if (TIFFGetField(in, TAG, &var)) { \
+    assert(TIFFSetField(out, TAG, var)); \
+  } else { \
+    std::cerr << "...unable to set " << #TAG << " -- not read in input" << std::endl; \
+  }
+
+#define COPY_TIFF_TAG_ASCII(in, out, TAG, var) \
+  if (TIFFGetField(in, TAG, &var)) { \
+    assert(TIFFSetField(out, TAG, var)); \
+  } else { \
+    std::cerr << "...unable to set " << #TAG << " -- not read in input" << std::endl; \
+  }
+
+#define COPY_TIFF_TAG_ASCII_QUIET(in, out, TAG, var) \
+  if (TIFFGetField(in, TAG, &var)) { \
+    assert(TIFFSetField(out, TAG, var)); \
+  }
+
+#define COPY_TIFF_TAG_QUIET(in, out, TAG, var) \
+  if (TIFFGetField(in, TAG, &var)) { \
+    assert(TIFFSetField(out, TAG, var)); \
+  } 
+
 
 /*
  * Copyright (c) 1988-1997 Sam Leffler
@@ -222,6 +246,8 @@ typedef int (*copyFunc)
 int tiffcp(TIFF* in, TIFF* out, bool verbose);
 
 int tiffcp2(TIFF* in, TIFF* out, bool verbose);
+
+int tiffcpjw(TIFF* in, TIFF* out);
 
 std::string tiffprint(TIFF* tif);
 
