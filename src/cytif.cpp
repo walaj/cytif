@@ -58,13 +58,13 @@ static const char *RUN_USAGE_MESSAGE =
 "  gray2rgb - Convert a 3-channel gray TIFF to a single RGB\n"
 "  colorize - Colorize select channels from a cycif tiff\n"
 "  mean - Give the mean pixel for each channel\n"
-"  csv - <placeholder for csv processing>\n"
   "\n";
 
 static int compress(int argc, char** argv);
 static int gray2rgb(int argc, char** argv);
 static int findmean(int argc, char** argv);
 static int colorize(int argc, char** argv);
+static int mask(int argc, char** argv);
 static void parseRunOptions(int argc, char** argv);
 
 // process in and outfile cmd arguments
@@ -99,6 +99,8 @@ int main(int argc, char **argv) {
   // get the module
   if (opt::module == "gray2rgb") {
     return(gray2rgb(argc, argv));
+  } else if (opt::module == "mask") {
+    return(mask(argc, argv));
   } else if (opt::module == "compress") {
     return(compress(argc, argv));
   } else if (opt::module == "colorize") {
@@ -109,6 +111,66 @@ int main(int argc, char **argv) {
     assert(false);
   }
   return 1;
+}
+
+static int mask(int argc, char** argv) {
+
+  bool die = false;
+  long x = 0;
+  long y = 0;
+  long w = 0;
+  long h = 0;
+  
+  const char* shortopts = "vx:y:w:h:";
+  for (char c; (c = getopt_long(argc, argv, shortopts, longopts, NULL)) != -1;) {
+    std::istringstream arg(optarg != NULL ? optarg : "");
+    switch (c) {
+    case 'v' : opt::verbose = true; break;
+    case 'x' : arg >> x; break;
+    case 'y' : arg >> y; break;
+    case 'w' : arg >> w; break;
+    case 'h' : arg >> h; break;      
+    default: die = true;
+    }
+  }
+
+  if (die || in_out_process(argc, argv)) {
+    
+    const char *USAGE_MESSAGE =
+      "Usage: tiffo mask [tiff] [outputtiff] <options>\n"
+      " Add a mask to a TIFF image (e.g. for removing artefacts) \n"
+      "  -v, --verbose             Increase output to stderr\n"
+      "  -x                        X coordinate of mask\n"
+      "  -y                        Y coordinate of mask\n"
+      "  -w                        Width mask\n"
+      "  -h                        Height of mask\n"	
+      "\n";
+    std::cerr << USAGE_MESSAGE;
+    return 1;
+  }
+
+  // open either the red channel or the 3-IFD file
+  TIFF *itif = TIFFOpen(opt::infile.c_str(), "rm");
+  
+  // Open the output TIFF file
+  TIFF* otif = TIFFOpen(opt::outfile.c_str(), "w8");
+  if (otif == NULL) {
+    fprintf(stderr, "Error opening %s for writing\n", opt::outfile.c_str());
+    return 1;
+  }
+
+  //assert(TIFFSetField(otif, TIFFTAG_COMPRESSION, COMPRESSION_ADOBE_DEFLATE));
+  //assert(TIFFSetField(otif, TIFFTAG_PREDICTOR, PREDICTOR_HORIZONTAL));
+ 
+  //LZW, Deflate and LZMA2 compression can be specified together with a predictor value. A predictor value of 2 causes each scanline of the output image to undergo horizontal differencing before it is encoded; a value of 1 forces each scanline to be encoded without differencing. A value 3 is for floating point predictor which you can use if the encoded data are in floating point format. LZW-specific options are specified by appending a :-separated list to the lzw option; e.g. -c lzw:2 for LZW compression with horizontal differencing.
+
+  uint64_t xlim2 = x + w;
+  uint64_t ylim2 = y + h;
+  
+  // this routine will handle printing output to stdout
+  Mask(itif, otif, x, y, xlim2, ylim2);
+  
+  return 0;
 }
 
 static int findmean(int argc, char** argv) {
@@ -225,7 +287,7 @@ static int compress(int argc, char** argv) {
     return 1;
   }
 
-  Mask(r_itif, otif);
+  Compress(r_itif, otif);
   
   TIFFClose(r_itif);
   TIFFClose(otif);
@@ -380,7 +442,8 @@ static void parseRunOptions(int argc, char** argv) {
   }
   */
   
-  if (! (opt::module == "gray2rgb" || opt::module == "mean" || opt::module == "compress" || opt::module == "debug" || opt::module == "colorize") ) {
+  if (! (opt::module == "gray2rgb" || opt::module == "mean" || opt::module == "compress" || opt::module == "debug" || opt::module == "colorize"
+	 || opt::module == "mask") ) {
     std::cerr << "Module " << opt::module << " not implemented" << std::endl;
     die = true;
   }

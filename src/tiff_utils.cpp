@@ -10,6 +10,8 @@
 #include <algorithm> // for std::min and std::max and std::fill_n
 #include <cstdint>   // for uint16_t and uint8_t
 
+#include <omp.h>
+
 #include "channel.h"
 
 #define MEAN_THRESHOLD 300
@@ -131,7 +133,7 @@ static void __gray8assert(TIFF* in) {
   
 }
 
-int Mask(TIFF* in, TIFF* out) {
+int Compress(TIFF* in, TIFF* out) {
 
   // display number of directories / channels
   int num_dir = TIFFNumberOfDirectories(in);
@@ -148,7 +150,8 @@ int Mask(TIFF* in, TIFF* out) {
     
     TIFFSetDirectory(in, n);
 
-#ifdef WRITEOUT    
+#ifdef WRITEOUT
+    
     // Create a new directory for the output file
     if (n > 0) {  // No need to create the first directory, it's automatically created
       // Finalize the previous directory and create new one
@@ -157,7 +160,7 @@ int Mask(TIFF* in, TIFF* out) {
 	return 1;
       }
     }
-
+    
     // copy fields
     tiffcpjw(in, out);
 
@@ -173,7 +176,7 @@ int Mask(TIFF* in, TIFF* out) {
     if (TIFFIsTiled(in)) {
 
       // copy tile info
-      uint64_t tileheight = 0, tilewidth = 0;
+     uint64_t tileheight = 0, tilewidth = 0;
 #ifdef WRITEOUT      
       COPY_TIFF_TAG(in, out, TIFFTAG_TILEWIDTH, tilewidth);
       COPY_TIFF_TAG(in, out, TIFFTAG_TILELENGTH, tileheight);
@@ -534,6 +537,150 @@ int Colorize(TIFF* in, TIFF* out, const std::string& palette_file,
   
 }
 
+int Mask(TIFF* in, TIFF* out,
+	 int xlim1,
+	 int ylim1,
+	 int xlim2,
+	 int ylim2) {
+
+  
+  // display number of directories / channels
+  int num_dir = TIFFNumberOfDirectories(in);
+  std::cerr << "Number of channels in image: " << num_dir << std::endl;
+
+  uint64_t prior_image_height = 0;
+  
+  // loop each channel
+  for (int n = 0; n < num_dir; n++) {
+
+    std::cerr << "...masking channel: " << n << std::endl;
+    assert(TIFFSetDirectory(in, n));
+
+    // debug
+    uint32_t number_of_sub_IFDs = 0;
+    void *ptr;
+    TIFFGetField(in, TIFFTAG_SUBIFD, &number_of_sub_IFDs, &ptr);
+    std::cerr << " Num sub IFDs " << number_of_sub_IFDs << std::endl;
+    
+    // get width and height
+    uint64_t m_height = 0;
+    uint64_t m_width = 0;
+    if (!TIFFGetField(in, TIFFTAG_IMAGEWIDTH, &m_width)) {
+      std::cerr << " ERROR getting image width " << std::endl;
+      return 1;
+    }
+    if (!TIFFGetField(in, TIFFTAG_IMAGELENGTH, &m_height)) {
+      std::cerr << " ERROR getting image height " << std::endl;
+      return 1;
+    }
+
+    // don't do subfields of a pyramid image
+    std::cerr << "prior height " << prior_image_height << " current " << m_height << std::endl;    
+    if (n == 0) {
+      prior_image_height = m_height;
+    } else if (prior_image_height != m_height) {
+      std::cerr << "...attempting channel " << n << " but image height is " <<
+	m_height << " compared with prior of " << prior_image_height << " suggesting pyramid, skipping all remaining channels" << std::endl;
+      return 0;
+    }
+ 
+    // Create a new directory for the output file
+    if (n > 0) {  // No need to create the first directory, it's automatically created
+      // Finalize the previous directory and create new one
+      if (!TIFFWriteDirectory(out)) {
+	std::cerr << "Error: Could not write output directory " << n << std::endl;
+	return 1;
+      }
+    }
+    
+    // copy fields
+    tiffcpjw(in, out);
+
+    // set compression
+    //assert(TIFFSetField(out, TIFFTAG_COMPRESSION, COMPRESSION_ADOBE_DEFLATE));
+    //assert(TIFFSetField(out, TIFFTAG_PREDICTOR, PREDICTOR_HORIZONTAL));
+    
+    // for tiled images
+    assert(TIFFSetDirectory(in, n));    
+    if (TIFFIsTiled(in)) {
+
+      uint64_t tileheight = 0;
+      uint64_t tilewidth = 0;
+
+      COPY_TIFF_TAG(in, out, TIFFTAG_TILEWIDTH, tilewidth);
+      COPY_TIFF_TAG(in, out, TIFFTAG_TILELENGTH, tileheight);
+      
+      uint64_t ts = TIFFTileSize(in);
+      uint64_t arr_size = ts / 2; // this is num pixels, /2 is assuming 16 bits per pixel
+      
+      // loop through the tiles
+      uint64_t x, y;
+      uint64_t m_pix = 0;
+      size_t num_tiles = 0;
+      //omp_set_num_threads(8);
+      //      #pragma omp parallel for private(x, y) shared(num_tiles, m_pix)
+      for (y = 0; y < m_height; y += tileheight) {
+	for (x = 0; x < m_width; x += tilewidth) {
+
+	  // allocate memory for a single tile
+	  // assuming 16 bit image
+	  uint16_t* itile = (uint16_t*)calloc(arr_size, sizeof(uint16_t));
+	  if (itile == nullptr) {
+	    std::cerr << "Memory allocation for channels failed." << std::endl;
+	    assert(false);
+	  }
+	  
+	  // and for the output tile
+	  // allocate memory for a single tile
+	  // assuming 16 bit image
+	  uint16_t* otile = (uint16_t*)calloc(arr_size, sizeof(uint16_t));
+	  if (otile == nullptr) {
+	    std::cerr << "Memory allocation for channels failed." << std::endl;
+	    assert(false);
+	  }
+
+	  //	  #pragma omp atomic
+	  num_tiles++;
+	  // Read the input tile
+	  if (TIFFReadTile(in, itile, x, y, 0, 0) < 0) {
+	    fprintf(stderr, "Error reading input channel %d tile at (%llu, %llu)\n", n, x, y);
+	    assert(false);
+	  }
+
+	  // write the pixels back and apply the mask
+	  for (uint32_t ty = 0; ty < tileheight; ty++) {
+	    for (uint32_t tx = 0; tx < tilewidth; tx++) {
+
+	      // if tile is in the mask boundaries, zero it
+	      if (y + ty > ylim1 && y + ty < ylim2 &&
+		  x + tx > xlim1 && x + tx < xlim2) {
+		otile[ty * tilewidth + tx] = 0;
+		// otherwise copy it
+	      } else {
+		otile[ty * tilewidth + tx] = itile[ty * tilewidth + tx];
+	      }
+	      
+	    }
+	  }
+
+	  // Write the tile to the TIFF file
+	  // this function will automatically calculate memory size from TIFF tags
+          #pragma omp critical
+	  if (TIFFWriteTile(out, otile, x, y, 0, 0) < 0) { 
+	    fprintf(stderr, "Error writing tile at (%llu, %llu)\n", x, y);
+	    assert(false);
+	  }
+	  
+	  free(itile);
+	  free(otile);
+	  
+	}// end tile x loop
+      } // end tile y loop
+    } // end if tiled
+  } // end dir/channel loop
+  return 0;
+}
+
 int MergeGrayToRGB(TIFF* in, TIFF* out) {
 
   int dircount = TIFFNumberOfDirectories(in);
@@ -563,9 +710,7 @@ int MergeGrayToRGB(TIFF* in, TIFF* out) {
     return 1;
   }
   
-  
-  // 
-    // for tiled images
+  // for tiled images
   TIFFSetDirectory(in, 0);
   if (TIFFIsTiled(in)) {
 
@@ -624,12 +769,10 @@ int MergeGrayToRGB(TIFF* in, TIFF* out) {
 	// copy the tile
 	for (size_t i = 0; i < TIFFTileSize(in); ++i) {
 
-	  /*
-	  ++m_pix;
-	  if (verbose && m_pix % static_cast<uint64_t>(1e9) == 0)
-	    std::cerr << "...working on pixel: " <<
-	      AddCommas(static_cast<uint64_t>(m_pix)) << std::endl;
-	  */
+	  //++m_pix;
+	  //if (verbose && m_pix % static_cast<uint64_t>(1e9) == 0)
+	  //  std::cerr << "...working on pixel: " <<
+	  //    AddCommas(static_cast<uint64_t>(m_pix)) << std::endl;
 	  
 	  static_cast<uint8_t*>(o_tile)[i*3    ] = r_tile[i];
 	  static_cast<uint8_t*>(o_tile)[i*3 + 1] = g_tile[i];
@@ -698,11 +841,10 @@ int MergeGrayToRGB(TIFF* in, TIFF* out) {
       // copy the line
       for (size_t i = 0; i < TIFFScanlineSize(in); ++i) {
 	
-	/*	++m_pix;
-		if (verbose && m_pix % static_cast<uint64_t>(1e9) == 0)
-	  std::cerr << "...working on pixel: " <<
-	    AddCommas(static_cast<uint64_t>(m_pix)) << std::endl;
-	*/
+	//		++m_pix;
+	//		if (verbose && m_pix % static_cast<uint64_t>(1e9) == 0)
+	//std::cerr << "...working on pixel: " <<
+	//  AddCommas(static_cast<uint64_t>(m_pix)) << std::endl;
 	
 	static_cast<uint8_t*>(obuf)[i*3  ] = rbuf[i];
 	static_cast<uint8_t*>(obuf)[i*3+1] = gbuf[i];
