@@ -169,6 +169,9 @@ static int mask(int argc, char** argv) {
   
   // this routine will handle printing output to stdout
   Mask(itif, otif, x, y, xlim2, ylim2);
+
+  TIFFClose(otif);
+  TIFFClose(itif);
   
   return 0;
 }

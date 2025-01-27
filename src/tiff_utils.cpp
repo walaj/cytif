@@ -604,6 +604,7 @@ int Mask(TIFF* in, TIFF* out,
     assert(TIFFSetDirectory(in, n));    
     if (TIFFIsTiled(in)) {
 
+
       uint64_t tileheight = 0;
       uint64_t tilewidth = 0;
 
